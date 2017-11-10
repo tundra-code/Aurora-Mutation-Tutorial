@@ -10,12 +10,13 @@ The version should be higher than 2.1.8
 
 Once you have npm downloaded and updated you can then you can start creating your mutation. Navigate to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`. Enter the following command into your command line
 `npm init`
-![alt text](https://imgur.com/rEk9owK)
+![npm init]
+(https://imgur.com/rEk9owK)
 This command creates a package.json file and it will prompt you to enter in values for the fields of the `package.json`. The default values are fine to use.
-![alt text](https://imgur.com/4kMpiWm)
+![package json](https://imgur.com/4kMpiWm)
 ## Mutation
 After you create the package.json file, then you can create your mutation. Create another file in the same folder that your `package.json` is in. It needs to be titled the same as what you put in the `entry point` field when creating your `package.json`. In this running example that file is `index.js`.
-![alt text](https://imgur.com/Sy2hIXm)
+![mutation setup](https://imgur.com/Sy2hIXm)
 Your mutation will need to be written in React, which is a framework for javascript. If you do not already have an editor that works well with React, you can get Atom or VScode.
 https://atom.io/
 https://code.visualstudio.com/
@@ -136,8 +137,8 @@ Your `package.json` file should now look something like this
 }
 ```
 After you write your config file and run the previous npm commands, run the command `webpack` on your command line. This will create a build folder and a bundle.js file.
-![alt text](https://imgur.com/zszzTEC)
+![webpack](https://imgur.com/zszzTEC)
 ## Publishing your npm package
 To publish a npm package you have to register yourself as a user. If you have already created your account on the npm website use the command `npm login` to login to your account. If you have not created an account yet use the command `npm adduser` to create your npm account. The next step is to publish your npm package by using the command `npm publish`. This command will publish everything in the current directory, so make sure you are in the right spot before running this command.
-![alt text](https://imgur.com/m4lkqRA)
+![npm publish](https://imgur.com/m4lkqRA)
 After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor.
