@@ -1,0 +1,26 @@
+{
+  "name": "aurora-mutate-purple-editor",
+  "version": "1.0.0",
+  "description": "Turns the aurora editor purple",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "aurora",
+    "mutation"
+  ],
+  "author": "rainmaker",
+  "license": "ISC",
+  "dependencies": {
+    "react": "^16.1.0",
+    "styled-components": "^2.2.3",
+    "webpack": "^3.8.1"
+  },
+  "devDependencies": {
+    "babel-core": "^6.26.0",
+    "babel-loader": "^7.1.2",
+    "babel-preset-env": "^1.6.1",
+    "babel-preset-react": "^6.24.1"
+  }
+}
