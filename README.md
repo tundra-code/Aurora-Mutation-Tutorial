@@ -6,7 +6,7 @@ This is a simple tutorial for writing a mutation for the Aurora application. The
 4. publishing your mutation to npm
 
 ## npm
-First you’ll need to install node if you don’t already have it. That can be done with this link: https://nodejs.org/en/download/
+First you’ll need to install node if you don’t already have it. That can be done with this link: [node download](https://nodejs.org/en/download/)
 
 
 Node comes with a version of npm, but you will need to check if it is the latest version. That can be done with entering this command in your terminal
@@ -28,7 +28,7 @@ This command creates a package.json file and it will prompt you to enter in valu
 
 ![package json](https://i.imgur.com/4kMpiWm.png)
 
-If you need more help with npm check out their tutorial: [npm](https://docs.npmjs.com/getting-started/what-is-npm)
+If you need more help with npm check out their tutorial: [npm tutorial](https://docs.npmjs.com/getting-started/what-is-npm)
 ## Mutation
 After you create the package.json file, then you can create your mutation. Create another file in the same folder that your `package.json` is in. It needs to be titled the same as what you put in the `entry point` field when creating your `package.json`. In this running example that file is `index.js`.
 
@@ -92,11 +92,11 @@ module.exports.mutations = {
 };
 ```
 Here is the github repository for this example: [flying cat](https://github.com/Flaque/aurora-mutate-kitty-cat)
-The import statements used are to import react and styled components. React is the language used to write the mutation and styled components allow us to change how the components(Editor and Frame) look. The constants (`const`) are used to style the components using css. If you want a more in depth guide for writing React check this out
-
+The import statements used are to import react and styled components. React is the language used to write the mutation and styled components allow us to change how the components(Editor and Frame) look. The constants (`const`) are used to style the components using css. If you want a more in depth guide for writing React check this out:
 https://reactjs.org/docs/hello-world.html
 
-For more information about the React technique used to write mutations check this out https://reactjs.org/docs/higher-order-components.html
+For more information about the React technique used to write mutations check this out:
+https://reactjs.org/docs/higher-order-components.html
 
 
 ## Webpack
@@ -123,6 +123,7 @@ module.exports = {
 Next, you’ll have to install some babel dependencies by running the following command on your command line:
 
 `npm install --save-dev babel-core babel-preset-env babel-preset-react  babel-loader`
+
 Then, you’ll have to bundle in react and styled components by running the following command:
 
 `npm install --save react styled-components`
