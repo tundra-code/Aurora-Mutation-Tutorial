@@ -1,4 +1,9 @@
 # How to Write a Mutation for Aurora
+This is a simple tutorial for writing a mutation for the Aurora application. These are the steps you'll need to follow:
+1. setting up npm
+2. writing your mutation
+3. setting up Webpack
+4. publishing your mutation to npm
 
 ## npm
 First you’ll need to install node if you don’t already have it. That can be done with this link: https://nodejs.org/en/download/
@@ -10,7 +15,7 @@ To test if it updated enter the command
 `npm -v `
 The version should be higher than 2.1.8
 
-Once you have npm downloaded and updated you can then you can start creating your mutation. 
+Once you have npm downloaded and updated you can then you can start creating your mutation.
 
 Navigate to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`.
 
@@ -28,9 +33,7 @@ After you create the package.json file, then you can create your mutation. Creat
 
 ![mutation setup](https://i.imgur.com/Sy2hIXm.png)
 
-Your mutation will need to be written in React, which is a framework for javascript. If you do not already have an editor that works well with React, you can get Atom or VScode.
-https://atom.io/
-https://code.visualstudio.com/
+Your mutation will need to be written in React, which is a framework for javascript. If you do not already have an editor that works well with React, you can get [Atom](https://atom.io/) or [VScode](https://code.visualstudio.com/).
 
 Here is an example on how to mutate the editor of Aurora to turn it purple
 ```import React from "react";
