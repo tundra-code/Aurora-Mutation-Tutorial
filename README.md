@@ -92,10 +92,13 @@ module.exports.mutations = {
 };
 ```
 Here is the github repository for this example: [flying cat](https://github.com/Flaque/aurora-mutate-kitty-cat)
+
 The import statements used are to import react and styled components. React is the language used to write the mutation and styled components allow us to change how the components(Editor and Frame) look. The constants (`const`) are used to style the components using css. If you want a more in depth guide for writing React check this out:
+
 https://reactjs.org/docs/hello-world.html
 
 For more information about the React technique used to write mutations check this out:
+
 https://reactjs.org/docs/higher-order-components.html
 
 
