@@ -137,7 +137,7 @@ Your `package.json` file should now look something like this
   "name": "aurora-mutate-purple-editor",
   "version": "1.0.0",
   "description": "Turns the aurora editor purple",
-  "main": "index.js",
+  "main": "bundle/bundle.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
