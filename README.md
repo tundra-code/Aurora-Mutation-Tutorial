@@ -49,10 +49,7 @@ function purpleEditor(Editor) {
   return class extends React.Component {
     render() {
       return (
-        <Editor>
-          <purple />
-          {this.props.children}
-        </Editor>
+        <Editor style={purple}>{this.props.children}</Editor>;
       );
     }
   };
