@@ -157,7 +157,14 @@ Your `package.json` file should now look something like this
   }
 }
 ```
-After you write your config file and run the previous npm commands, run the command `webpack` on your command line. This will create a build folder and a bundle.js file.
+After you write your config file and run the previous npm commands, you'll have to create a `.babelrc` file in your `node_modules` folder. The contents of that file should be exactly as follows.
+```
+{
+  "presets": ["env", "react"]
+}
+```
+
+Then run the command `webpack` on your command line. This will create a build folder and a bundle.js file.
 
 ![webpack](https://i.imgur.com/zszzTEC.png)
 
