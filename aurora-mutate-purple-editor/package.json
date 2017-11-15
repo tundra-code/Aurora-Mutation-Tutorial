@@ -1,6 +1,6 @@
 {
   "name": "aurora-mutate-purple-editor",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Turns the aurora editor purple",
   "main": "build/bundle.js",
   "scripts": {
