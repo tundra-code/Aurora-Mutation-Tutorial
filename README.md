@@ -39,7 +39,6 @@ Your mutation will need to be written in React, which is a framework for javascr
 Here is an example on how to mutate the editor of Aurora to turn it purple
 ```import React from "react";
 import styled from "styled-components";
-import Editor from "draft-js";
 
 const purple = `
   color: #8B008D;
