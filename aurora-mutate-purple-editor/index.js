@@ -8,12 +8,8 @@ const purple = `
 function purpleEditor(Editor) {
   return class extends React.Component {
     render() {
-      return (
-        <Editor>
-          <purple />
-          {this.props.children}
-        </Editor>
-      );
+      return;
+      <Editor style={purple}>{this.props.children}</Editor>;
     }
   };
 }
