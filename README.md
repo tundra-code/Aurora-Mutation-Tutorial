@@ -169,7 +169,7 @@ To publish a npm package you have to register yourself as a user. If you have al
 
 ![npm publish](https://i.imgur.com/m4lkqRA.png)
 
-After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor.
+After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor. Then run `npm publish` to publish your changes.
 
 ## Check out the Aurora Mutations Store!
 Once you publish your npm package your mutation will be available for all of the Aurora users to add to their version of the application!
