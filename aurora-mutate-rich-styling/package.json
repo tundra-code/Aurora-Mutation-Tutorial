@@ -1,0 +1,27 @@
+{
+  "name": "aurora-mutate-rich-styling",
+  "version": "1.3.0",
+  "description": "adds rich styling to the editor",
+  "main": "build/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack",
+    "prepublish": "webpack"
+  },
+  "keywords": [
+    "aurora",
+    "mutation"
+  ],
+  "author": "rainmaker",
+  "license": "ISC",
+  "devDependencies": {
+    "babel-core": "^6.26.0",
+    "babel-loader": "^7.1.2",
+    "babel-preset-env": "^1.6.1",
+    "babel-preset-react": "^6.24.1"
+  },
+  "dependencies": {
+    "react": "^16.2.0",
+    "styled-components": "^2.2.4"
+  }
+}
