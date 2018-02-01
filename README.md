@@ -190,7 +190,7 @@ npm publish //publishes your npm package
 After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor. Then run `npm publish` to publish your changes.
 ```
 npm version <update-type>   //updates your npm package
-npm publish               //publishes your updated package
+npm publish                 //publishes your updated package
 ```
 
 ## Check out the Aurora Mutations Store!
