@@ -22,7 +22,7 @@ The version should be higher than 2.1.8
 
 Once you have npm downloaded and updated you can then you can start creating your mutation.
 
-Navigate to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`. It is important to have the prefix `aurora-mutate` because that is how it will end up in our mutation store.
+Navigate in your file system to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`. It is important to have the prefix `aurora-mutate` because that is how it will end up in our mutation store.
 
 Enter the following command into your command line
 
@@ -94,6 +94,8 @@ module.exports.mutations = {
 };
 ```
 Here is the github repository for this example: [flying cat](https://github.com/Flaque/aurora-mutate-kitty-cat)
+
+There are other examples in this repository that you can look at.
 
 The import statements used are to import react and styled components. React is the language used to write the mutation and styled components allow us to change how the components(Editor and Frame) look. The constants (`const`) are used to style the components using css. If you want a more in depth guide for writing React check this out:
 
