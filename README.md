@@ -50,11 +50,11 @@ const purple = `
   color: #8B008D;
 `;
 
-function purpleEditor(Editor) {
+function purpleEditor(BaseEditor) {
   return class extends React.Component {
     render() {
       return (
-        <Editor style={purple}>{this.props.children}</Editor>;
+        <BaseEditor style={purple}>{this.props.children}</BaseEditor>;
       );
     }
   };
@@ -187,7 +187,7 @@ npm publish //publishes your npm package
 
 ![npm publish](https://i.imgur.com/m4lkqRA.png)
 ### Updating your npm package
-After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor. Then run `npm publish` to publish your changes.
+After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either `patch`, `major`, or `minor`. Then run `npm publish` to publish your changes.
 ```
 npm version <update-type>   //updates your npm package
 npm publish                 //publishes your updated package
