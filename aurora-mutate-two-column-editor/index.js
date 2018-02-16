@@ -76,7 +76,7 @@ function twoColumnContentView(ContentView, api) {
                 placeholder={"Change me!"}
               />
             </div>
-            <div className="editor">
+            <div className="editor right-editor">
               <Editor
                 className="Editor2"
                 editorState={this.props.ourEditorState.right}
