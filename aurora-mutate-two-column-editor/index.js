@@ -1,13 +1,7 @@
-import styled from "styled-components";
 import React from "react";
 import { deSerialize, serialize, serPreview } from "./util";
 import { Editor } from "draft-js";
-
-const EditorDiv = styled.div`
-  display: inline-block;
-  width: 50%;
-  top: 0;
-`;
+import "./style.css";
 
 function twoColumnContentView(ContentView, api) {
   return class extends React.Component {
@@ -73,7 +67,7 @@ function twoColumnContentView(ContentView, api) {
       ) {
         return (
           <div>
-            <EditorDiv>
+            <div className="editor left-editor">
               <Editor
                 className="Editor1"
                 editorState={this.props.ourEditorState.left}
@@ -81,8 +75,8 @@ function twoColumnContentView(ContentView, api) {
                 onBlur={this.onBlur}
                 placeholder={"Change me!"}
               />
-            </EditorDiv>
-            <EditorDiv>
+            </div>
+            <div className="editor">
               <Editor
                 className="Editor2"
                 editorState={this.props.ourEditorState.right}
@@ -90,7 +84,7 @@ function twoColumnContentView(ContentView, api) {
                 onBlur={this.onBlur}
                 placeholder={"Write Something!"}
               />
-            </EditorDiv>
+            </div>
           </div>
         );
       }

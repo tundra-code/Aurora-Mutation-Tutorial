@@ -1,0 +1,14 @@
+.editor {
+  display: inline-block;
+  width: 50%;
+  padding: 1em;
+}
+
+.left-editor {
+  border-right: 1px solid black;
+  float: left;
+}
+
+.right-editor {
+  float: right;
+}
