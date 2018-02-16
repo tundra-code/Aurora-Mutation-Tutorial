@@ -5,21 +5,27 @@ This is a simple tutorial for writing a mutation for the Aurora application. The
 3. setting up Webpack
 4. publishing your mutation to npm
 
+Mutations allow our users to have ultimate flexibility with their note taking styles. A mutation can change most aspects of Aurora. For instance, if you like taking notes in a cornell style format, you can write a mutation that will allow you to do that. Don't like the way the previews look? You can write a mutation to change that.
 ## npm
 First you’ll need to install node if you don’t already have it. That can be done with this link: [node download](https://nodejs.org/en/download/)
 
 
 Node comes with a version of npm, but you will need to check if it is the latest version. That can be done with entering this command in your terminal
+
 `npm install npm@latest -g`
+
 To test if it updated enter the command
+
 `npm -v `
+
 The version should be higher than 2.1.8
 
 Once you have npm downloaded and updated you can then you can start creating your mutation.
 
-Navigate to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`.
+Navigate in your file system to where you would like your npm package to be stored. Then create a folder called `aurora-mutate-nameOfMutation`. It is important to have the prefix `aurora-mutate` because that is how it will end up in our mutation store.
 
 Enter the following command into your command line
+
 `npm init`
 
 ![npm init](https://i.imgur.com/rEk9owK.png)
@@ -44,11 +50,11 @@ const purple = `
   color: #8B008D;
 `;
 
-function purpleEditor(Editor) {
+function purpleEditor(BaseEditor) {
   return class extends React.Component {
     render() {
       return (
-        <Editor style={purple}>{this.props.children}</Editor>;
+        <BaseEditor style={purple}>{this.props.children}</BaseEditor>;
       );
     }
   };
@@ -89,6 +95,8 @@ module.exports.mutations = {
 ```
 Here is the github repository for this example: [flying cat](https://github.com/Flaque/aurora-mutate-kitty-cat)
 
+There are other examples in this repository that you can look at.
+
 The import statements used are to import react and styled components. React is the language used to write the mutation and styled components allow us to change how the components(Editor and Frame) look. The constants (`const`) are used to style the components using css. If you want a more in depth guide for writing React check this out:
 
 https://reactjs.org/docs/hello-world.html
@@ -100,8 +108,10 @@ https://reactjs.org/docs/higher-order-components.html
 
 ## Webpack
 Webpack is a bundler, and we’re going to use it to bundle your mutation once you have written it. You can install Webpack by entering this onto your command line
+
 `npm install webpack -g`
-Next you’ll have to create a webpack.config.js file. This file will tell webpack what it should do. Here is an example of what it should look like.
+
+Next you’ll have to create a `webpack.config.js` file. This file will tell webpack what it should do. Here is an example of what it should look like.
 ```
 const path = require("path");
 
@@ -156,7 +166,7 @@ Your `package.json` file should now look something like this
   }
 }
 ```
-After you write your config file and run the previous npm commands, you'll have to create a `.babelrc` file in your `node_modules` folder. The contents of that file should be exactly as follows.
+After you write your config file and run the previous npm commands, you'll have to create a `.babelrc` file in your main mutation folder. The contents of that file should be exactly as follows.
 ```
 {
   "presets": ["env", "react"]
@@ -169,10 +179,19 @@ Then run the command `webpack` on your command line. This will create a build fo
 
 ## Publishing your npm package
 To publish a npm package you have to register yourself as a user. If you have already created your account on the npm website use the command `npm login` to login to your account. If you have not created an account yet use the command `npm adduser` to create your npm account. The next step is to publish your npm package by using the command `npm publish`. This command will publish everything in the current directory, so make sure you are in the right spot before running this command.
+```
+npm adduser //creates a new account for npm
+npm login   //logs onto npm
+npm publish //publishes your npm package
+```
 
 ![npm publish](https://i.imgur.com/m4lkqRA.png)
-
-After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either patch, major, or minor. Then run `npm publish` to publish your changes.
+### Updating your npm package
+After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either `patch`, `major`, or `minor`. Then run `npm publish` to publish your changes.
+```
+npm version <update-type>   //updates your npm package
+npm publish                 //publishes your updated package
+```
 
 ## Check out the Aurora Mutations Store!
 Once you publish your npm package your mutation will be available for all of the Aurora users to add to their version of the application!
