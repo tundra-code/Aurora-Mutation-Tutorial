@@ -12477,6 +12477,10 @@ function twoColumnContentView(ContentView, api) {
         if (_this.props.onBlurEx) {
           _this.props.onBlurEx();
         }
+      }, _this.onFocus = function () {
+        if (_this.props.onFocusEx) {
+          _this.props.onFocusEx();
+        }
       }, _temp), _possibleConstructorReturn(_this, _ret);
     }
 
@@ -12503,17 +12507,19 @@ function twoColumnContentView(ContentView, api) {
                 editorState: this.props.ourEditorState.left,
                 onChange: this.onChangeLeft,
                 onBlur: this.onBlur,
+                onFocus: this.onFocus,
                 placeholder: "Change me!"
               })
             ),
             _react2.default.createElement(
               "div",
-              { className: "editor" },
+              { className: "editor right-editor" },
               _react2.default.createElement(_draftJs.Editor, {
                 className: "Editor2",
                 editorState: this.props.ourEditorState.right,
                 onChange: this.onChangeRight,
                 onBlur: this.onBlur,
+                onFocus: this.onFocus,
                 placeholder: "Write Something!"
               })
             )
@@ -38948,7 +38954,7 @@ exports = module.exports = __webpack_require__(173)(false);
 
 
 // module
-exports.push([module.i, ".editor {\n  display: inline-block;\n  width: 50%;\n  top: 0;\n  padding: 1em;\n}\n\n.left-editor {\n  border-right: 1px solid black;\n}\n", ""]);
+exports.push([module.i, ".editor {\n  display: inline-block;\n  width: 50%;\n  padding: 1em;\n}\n\n.left-editor {\n  border-right: 1px solid black;\n  float: left;\n}\n\n.right-editor {\n  float: right;\n}\n", ""]);
 
 // exports
 

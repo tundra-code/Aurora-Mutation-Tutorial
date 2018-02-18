@@ -60,6 +60,12 @@ function twoColumnContentView(ContentView, api) {
       }
     };
 
+    onFocus = () => {
+      if (this.props.onFocusEx) {
+        this.props.onFocusEx();
+      }
+    };
+
     render() {
       if (
         this.props.note &&
@@ -73,6 +79,7 @@ function twoColumnContentView(ContentView, api) {
                 editorState={this.props.ourEditorState.left}
                 onChange={this.onChangeLeft}
                 onBlur={this.onBlur}
+                onFocus={this.onFocus}
                 placeholder={"Change me!"}
               />
             </div>
@@ -82,6 +89,7 @@ function twoColumnContentView(ContentView, api) {
                 editorState={this.props.ourEditorState.right}
                 onChange={this.onChangeRight}
                 onBlur={this.onBlur}
+                onFocus={this.onFocus}
                 placeholder={"Write Something!"}
               />
             </div>
