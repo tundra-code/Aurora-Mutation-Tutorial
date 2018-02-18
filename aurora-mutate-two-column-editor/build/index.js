@@ -38954,7 +38954,7 @@ exports = module.exports = __webpack_require__(173)(false);
 
 
 // module
-exports.push([module.i, ".editor {\n  display: inline-block;\n  width: 50%;\n  padding: 1em;\n}\n\n.left-editor {\n  border-right: 1px solid black;\n  float: left;\n}\n\n.right-editor {\n  float: right;\n}\n", ""]);
+exports.push([module.i, ".editor {\n  display: inline-block;\n  width: 48%;\n  padding: 1em;\n}\n\n.left-editor {\n  border-right: 1px solid black;\n  float: left;\n}\n\n.right-editor {\n  float: right;\n}\n", ""]);
 
 // exports
 
