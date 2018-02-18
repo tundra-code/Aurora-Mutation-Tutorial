@@ -12508,7 +12508,7 @@ function twoColumnContentView(ContentView, api) {
             ),
             _react2.default.createElement(
               "div",
-              { className: "editor" },
+              { className: "editor right-editor" },
               _react2.default.createElement(_draftJs.Editor, {
                 className: "Editor2",
                 editorState: this.props.ourEditorState.right,
@@ -34096,9 +34096,9 @@ var __WEBPACK_AMD_DEFINE_RESULT__;/**
     } else {
         // requirejs env (optional)
         if ("function" === FUNC_TYPE && __webpack_require__(111)) {
-            !(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
+            !(__WEBPACK_AMD_DEFINE_RESULT__ = (function () {
                 return UAParser;
-            }.call(exports, __webpack_require__, exports, module),
+            }).call(exports, __webpack_require__, exports, module),
 				__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
         } else if (window) {
             // browser env
@@ -38948,7 +38948,7 @@ exports = module.exports = __webpack_require__(173)(false);
 
 
 // module
-exports.push([module.i, ".editor {\n  display: inline-block;\n  width: 50%;\n  top: 0;\n  padding: 1em;\n}\n\n.left-editor {\n  border-right: 1px solid black;\n}\n", ""]);
+exports.push([module.i, ".editor {\r\n  display: inline-block;\r\n  width: 48%;\r\n  padding: 1em;\r\n}\r\n\r\n.left-editor {\r\n  border-right: 1px solid black;\r\n  float: left;\r\n}\r\n\r\n.right-editor {\r\n  float: right;\r\n}\r\n", ""]);
 
 // exports
 
