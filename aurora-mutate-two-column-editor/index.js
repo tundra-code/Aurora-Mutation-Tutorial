@@ -81,6 +81,8 @@ function twoColumnContentView(ContentView, api) {
                 onBlur={this.onBlur}
                 onFocus={this.onFocus}
                 placeholder={"Change me!"}
+                handleKeyCommand={this.props.handleKeyCommand}
+                keyBindingFn={this.props.keyBindingFn}
               />
             </div>
             <div className="editor right-editor">
@@ -91,6 +93,8 @@ function twoColumnContentView(ContentView, api) {
                 onBlur={this.onBlur}
                 onFocus={this.onFocus}
                 placeholder={"Write Something!"}
+                handleKeyCommand={this.props.handleKeyCommand}
+                keyBindingFn={this.props.keyBindingFn}
               />
             </div>
           </div>

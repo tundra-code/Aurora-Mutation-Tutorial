@@ -12508,7 +12508,9 @@ function twoColumnContentView(ContentView, api) {
                 onChange: this.onChangeLeft,
                 onBlur: this.onBlur,
                 onFocus: this.onFocus,
-                placeholder: "Change me!"
+                placeholder: "Change me!",
+                handleKeyCommand: this.props.handleKeyCommand,
+                keyBindingFn: this.props.keyBindingFn
               })
             ),
             _react2.default.createElement(
@@ -12520,7 +12522,9 @@ function twoColumnContentView(ContentView, api) {
                 onChange: this.onChangeRight,
                 onBlur: this.onBlur,
                 onFocus: this.onFocus,
-                placeholder: "Write Something!"
+                placeholder: "Write Something!",
+                handleKeyCommand: this.props.handleKeyCommand,
+                keyBindingFn: this.props.keyBindingFn
               })
             )
           );

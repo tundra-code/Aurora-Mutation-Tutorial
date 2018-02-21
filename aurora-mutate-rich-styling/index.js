@@ -16,12 +16,16 @@ function RichStyling(Editor) {
         this.props.onChangeEx(newState);
         return "handled";
       }
+      if (this.props.handleKeyCommand) {
+        return this.props.handleKeyCommand(command, editorState);
+      }
       return "not-handled";
     }
 
     render() {
+      const { handleKeyCommand, ...props } = this.props;
       return (
-        <Editor {...this.props} handleKeyCommand={this.handleKeyCommand}>
+        <Editor handleKeyCommand={this.handleKeyCommand} {...props}>
           {this.props.children}
         </Editor>
       );

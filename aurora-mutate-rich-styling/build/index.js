@@ -12370,6 +12370,8 @@ var _draftJs = __webpack_require__(87);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
+function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
@@ -12400,14 +12402,21 @@ function RichStyling(Editor) {
           this.props.onChangeEx(newState);
           return "handled";
         }
+        if (this.props.handleKeyCommand) {
+          return this.props.handleKeyCommand(command, editorState);
+        }
         return "not-handled";
       }
     }, {
       key: "render",
       value: function render() {
+        var _props = this.props,
+            handleKeyCommand = _props.handleKeyCommand,
+            props = _objectWithoutProperties(_props, ["handleKeyCommand"]);
+
         return _react2.default.createElement(
           Editor,
-          _extends({}, this.props, { handleKeyCommand: this.handleKeyCommand }),
+          _extends({ handleKeyCommand: this.handleKeyCommand }, props),
           this.props.children
         );
       }
