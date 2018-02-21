@@ -1,6 +1,6 @@
 {
   "name": "aurora-mutate-image-support",
-  "version": "1.0.6",
+  "version": "1.0.10",
   "description": "Adds image support to aurora",
   "main": "build/index.js",
   "scripts": {
@@ -11,6 +11,7 @@
   "author": "supa scott",
   "license": "ISC",
   "dependencies": {
+    "babel-preset-stage-2": "^6.24.1",
     "draft-js": "^0.10.5",
     "draft-js-image-plugin": "^2.0.1",
     "react": "^16.2.0",
