@@ -169,6 +169,13 @@ Your `package.json` file should now look something like this
   }
 }
 ```
+
+### A note on editor mutations
+If you are writing a mutation that adds a new type of editor to the `window.editors` registry,
+then make sure that the name of the editor you are adding is listed in the `keywords` array of
+the `package.json`.
+
+### babelrc
 After you write your config file and run the previous npm commands, you'll have to create a `.babelrc` file in your main mutation folder. The contents of that file should be exactly as follows.
 ```
 {
