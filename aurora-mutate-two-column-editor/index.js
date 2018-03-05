@@ -72,7 +72,7 @@ function twoColumnContentView(ContentView, api) {
         this.props.note.mutationName === "TwoColumnEditor"
       ) {
         return (
-          <div>
+          <div className="two-column-editor">
             <div className="editor left-editor">
               <Editor
                 className="Editor1"

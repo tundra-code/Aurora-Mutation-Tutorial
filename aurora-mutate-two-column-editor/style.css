@@ -5,10 +5,14 @@
 }
 
 .left-editor {
-  border-right: 1px solid black;
+  border-right: 1px solid #DED3E2;
   float: left;
 }
 
 .right-editor {
   float: right;
+}
+
+.two-column-editor {
+  display: flex;
 }
