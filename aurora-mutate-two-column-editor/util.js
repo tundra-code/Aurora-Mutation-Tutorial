@@ -97,6 +97,13 @@ function emptySerializedState() {
   return serialize(emptyState());
 }
 
+export function getSearchableText(state) {
+  return (
+    state.left.getCurrentContent().getPlainText() +
+    state.right.getCurrentContent().getPlainText()
+  );
+}
+
 // Initialize editor registry if needed.
 if (window.editors === undefined) {
   window.editors = {};
@@ -104,5 +111,6 @@ if (window.editors === undefined) {
 // Add this two column editor to global registry
 window.editors.TwoColumnEditor = {
   emptyEditorState: emptyState(),
-  newNoteContent: emptySerializedState()
+  newNoteContent: emptySerializedState(),
+  screenName: "Two Column Note"
 };

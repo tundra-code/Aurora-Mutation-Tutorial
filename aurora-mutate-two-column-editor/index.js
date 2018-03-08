@@ -1,5 +1,5 @@
 import React from "react";
-import { deSerialize, serialize, serPreview } from "./util";
+import { deSerialize, serialize, serPreview, getSearchableText } from "./util";
 import { Editor } from "draft-js";
 import "./style.css";
 
@@ -29,12 +29,14 @@ function twoColumnContentView(ContentView, api) {
       editorState.right = state;
       const serializedContent = serialize(editorState);
       const serializedPreview = serPreview(editorState);
+      const searchableText = getSearchableText(editorState);
 
       if (this.props.onChangeEx) {
         this.props.onChangeEx(
           editorState,
           serializedContent,
-          serializedPreview
+          serializedPreview,
+          searchableText
         );
       }
     };
@@ -44,12 +46,14 @@ function twoColumnContentView(ContentView, api) {
       editorState.left = state;
       const serializedContent = serialize(editorState);
       const serializedPreview = serPreview(editorState);
+      const searchableText = getSearchableText(editorState);
 
       if (this.props.onChangeEx) {
         this.props.onChangeEx(
           editorState,
           serializedContent,
-          serializedPreview
+          serializedPreview,
+          searchableText
         );
       }
     };
