@@ -16,6 +16,7 @@ function RichStyling(Editor) {
         this.props.onChangeEx(newState);
         return "handled";
       }
+      // call original handleKeyCommand function if we don't handle it.
       if (this.props.handleKeyCommand) {
         return this.props.handleKeyCommand(command, editorState);
       }
@@ -23,6 +24,7 @@ function RichStyling(Editor) {
     }
 
     render() {
+      // extract handleKeyCommand prop because we want to replace it with our own.
       const { handleKeyCommand, ...props } = this.props;
       return (
         <Editor handleKeyCommand={this.handleKeyCommand} {...props}>
