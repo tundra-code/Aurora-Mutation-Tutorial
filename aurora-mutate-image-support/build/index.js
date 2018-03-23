@@ -12459,15 +12459,15 @@ function Images(Editor) {
     _createClass(_class, [{
       key: "handleKeyCommand",
       value: function handleKeyCommand(command, editorState) {
-        var selectionState = editorState.getSelection();
-        var anchorKey = selectionState.getAnchorKey();
-        var currentContent = editorState.getCurrentContent();
-        var currentContentBlock = currentContent.getBlockForKey(anchorKey);
-        var start = selectionState.getStartOffset();
-        var end = selectionState.getEndOffset();
-        var src = currentContentBlock.getText().slice(start, end);
-
         if (command === "insert-image") {
+          var selectionState = editorState.getSelection();
+          var anchorKey = selectionState.getAnchorKey();
+          var currentContent = editorState.getCurrentContent();
+          var currentContentBlock = currentContent.getBlockForKey(anchorKey);
+          var start = selectionState.getStartOffset();
+          var end = selectionState.getEndOffset();
+          var src = currentContentBlock.getText().slice(start, end);
+
           var newState = imagePlugin.addImage(editorState, src);
           this.props.onChange(newState);
           return "handled";

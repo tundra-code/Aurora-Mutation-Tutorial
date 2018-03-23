@@ -15,15 +15,15 @@ function Images(Editor) {
     }
 
     handleKeyCommand(command, editorState) {
-      const selectionState = editorState.getSelection();
-      const anchorKey = selectionState.getAnchorKey();
-      const currentContent = editorState.getCurrentContent();
-      const currentContentBlock = currentContent.getBlockForKey(anchorKey);
-      const start = selectionState.getStartOffset();
-      const end = selectionState.getEndOffset();
-      const src = currentContentBlock.getText().slice(start, end);
-
       if (command === "insert-image") {
+        const selectionState = editorState.getSelection();
+        const anchorKey = selectionState.getAnchorKey();
+        const currentContent = editorState.getCurrentContent();
+        const currentContentBlock = currentContent.getBlockForKey(anchorKey);
+        const start = selectionState.getStartOffset();
+        const end = selectionState.getEndOffset();
+        const src = currentContentBlock.getText().slice(start, end);
+
         const newState = imagePlugin.addImage(editorState, src);
         this.props.onChange(newState);
         return "handled";

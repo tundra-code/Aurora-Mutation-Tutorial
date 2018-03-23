@@ -1,6 +1,6 @@
 {
   "name": "aurora-mutate-image-support",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Adds image support to aurora",
   "main": "build/index.js",
   "scripts": {
