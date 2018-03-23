@@ -1,6 +1,6 @@
 {
   "name": "aurora-mutate-two-column-editor",
-  "version": "1.2.3",
+  "version": "1.2.6",
   "description": "A mutation for two columned notes.",
   "main": "build/index.js",
   "scripts": {

@@ -12413,6 +12413,8 @@ module.exports = DraftStringKey;
 "use strict";
 
 
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
 var _react = __webpack_require__(9);
@@ -12426,6 +12428,8 @@ var _draftJs = __webpack_require__(43);
 __webpack_require__(171);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -12451,9 +12455,7 @@ function twoColumnContentView(ContentView, api) {
       return _ret = (_temp = (_this = _possibleConstructorReturn(this, (_ref = _class2.__proto__ || Object.getPrototypeOf(_class2)).call.apply(_ref, [this].concat(args))), _this), _this.finishedLoadingContent = function () {
         _this.props.note.getContent().then(function (content) {
           var editorState = (0, _util.deSerialize)(content[_this.props.note.mutationName]);
-          if (_this.props.onContentLoaded) {
-            _this.props.onContentLoaded(editorState);
-          }
+          _this.props.onContentLoaded(editorState);
         });
       }, _this.onChangeRight = function (state) {
         var editorState = _this.props.ourEditorState;
@@ -12462,9 +12464,7 @@ function twoColumnContentView(ContentView, api) {
         var serializedPreview = (0, _util.serPreview)(editorState);
         var searchableText = (0, _util.getSearchableText)(editorState);
 
-        if (_this.props.onChangeEx) {
-          _this.props.onChangeEx(editorState, serializedContent, serializedPreview, searchableText);
-        }
+        _this.props.onChange(editorState, serializedContent, serializedPreview, searchableText);
       }, _this.onChangeLeft = function (state) {
         var editorState = _this.props.ourEditorState;
         editorState.left = state;
@@ -12472,17 +12472,7 @@ function twoColumnContentView(ContentView, api) {
         var serializedPreview = (0, _util.serPreview)(editorState);
         var searchableText = (0, _util.getSearchableText)(editorState);
 
-        if (_this.props.onChangeEx) {
-          _this.props.onChangeEx(editorState, serializedContent, serializedPreview, searchableText);
-        }
-      }, _this.onBlur = function () {
-        if (_this.props.onBlurEx) {
-          _this.props.onBlurEx();
-        }
-      }, _this.onFocus = function () {
-        if (_this.props.onFocusEx) {
-          _this.props.onFocusEx();
-        }
+        _this.props.onChange(editorState, serializedContent, serializedPreview, searchableText);
       }, _temp), _possibleConstructorReturn(_this, _ret);
     }
 
@@ -12498,36 +12488,32 @@ function twoColumnContentView(ContentView, api) {
       key: "render",
       value: function render() {
         if (this.props.note && this.props.note.mutationName === "TwoColumnEditor") {
+          var _props = this.props,
+              onChange = _props.onChange,
+              props = _objectWithoutProperties(_props, ["onChange"]);
+
           return _react2.default.createElement(
             "div",
             { className: "two-column-editor" },
             _react2.default.createElement(
               "div",
               { className: "editor left-editor" },
-              _react2.default.createElement(_draftJs.Editor, {
+              _react2.default.createElement(_draftJs.Editor, _extends({
                 className: "Editor1",
                 editorState: this.props.ourEditorState.left,
                 onChange: this.onChangeLeft,
-                onBlur: this.onBlur,
-                onFocus: this.onFocus,
-                placeholder: "Change me!",
-                handleKeyCommand: this.props.handleKeyCommand,
-                keyBindingFn: this.props.keyBindingFn
-              })
+                placeholder: "Change me!"
+              }, props))
             ),
             _react2.default.createElement(
               "div",
               { className: "editor right-editor" },
-              _react2.default.createElement(_draftJs.Editor, {
+              _react2.default.createElement(_draftJs.Editor, _extends({
                 className: "Editor2",
                 editorState: this.props.ourEditorState.right,
                 onChange: this.onChangeRight,
-                onBlur: this.onBlur,
-                onFocus: this.onFocus,
-                placeholder: "Write Something!",
-                handleKeyCommand: this.props.handleKeyCommand,
-                keyBindingFn: this.props.keyBindingFn
-              })
+                placeholder: "Write Something!"
+              }, props))
             )
           );
         }
