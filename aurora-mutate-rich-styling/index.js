@@ -13,7 +13,7 @@ function RichStyling(Editor) {
     handleKeyCommand(command, editorState) {
       const newState = RichUtils.handleKeyCommand(editorState, command);
       if (newState) {
-        this.props.onChangeEx(newState);
+        this.props.onChange(newState);
         return "handled";
       }
       // call original handleKeyCommand function if we don't handle it.
@@ -26,11 +26,7 @@ function RichStyling(Editor) {
     render() {
       // extract handleKeyCommand prop because we want to replace it with our own.
       const { handleKeyCommand, ...props } = this.props;
-      return (
-        <Editor handleKeyCommand={this.handleKeyCommand} {...props}>
-          {this.props.children}
-        </Editor>
-      );
+      return <Editor handleKeyCommand={this.handleKeyCommand} {...props} />;
     }
   };
 }

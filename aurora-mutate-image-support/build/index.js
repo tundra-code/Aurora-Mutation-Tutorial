@@ -12452,7 +12452,7 @@ function Images(Editor) {
       var _this = _possibleConstructorReturn(this, (_class.__proto__ || Object.getPrototypeOf(_class)).call(this, props));
 
       _this.handleKeyCommand = _this.handleKeyCommand.bind(_this);
-      _this.saveKeyBinding = _this.saveKeyBinding.bind(_this);
+      _this.keyBinding = _this.keyBinding.bind(_this);
       return _this;
     }
 
@@ -12469,7 +12469,7 @@ function Images(Editor) {
 
         if (command === "insert-image") {
           var newState = imagePlugin.addImage(editorState, src);
-          this.props.onChangeEx(newState);
+          this.props.onChange(newState);
           return "handled";
         }
         if (this.props.handleKeyCommand) {
@@ -12478,8 +12478,8 @@ function Images(Editor) {
         return "not-handled";
       }
     }, {
-      key: "saveKeyBinding",
-      value: function saveKeyBinding(e) {
+      key: "keyBinding",
+      value: function keyBinding(e) {
         if (e.keyCode === 75 && hasCommandModifier(e)) {
           //command+k
           return "insert-image";
@@ -12503,15 +12503,11 @@ function Images(Editor) {
             keyBindingFn = _props.keyBindingFn,
             props = _objectWithoutProperties(_props, ["handleKeyCommand", "keyBindingFn"]);
 
-        return _react2.default.createElement(
-          Editor,
-          _extends({
-            plugins: plugins,
-            handleKeyCommand: this.handleKeyCommand,
-            keyBindingFn: this.saveKeyBinding
-          }, props),
-          this.props.children
-        );
+        return _react2.default.createElement(Editor, _extends({
+          plugins: plugins,
+          handleKeyCommand: this.handleKeyCommand,
+          keyBindingFn: this.keyBinding
+        }, props));
       }
     }]);
 

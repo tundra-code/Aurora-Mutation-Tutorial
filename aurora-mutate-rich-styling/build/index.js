@@ -12399,9 +12399,10 @@ function RichStyling(Editor) {
       value: function handleKeyCommand(command, editorState) {
         var newState = _draftJs.RichUtils.handleKeyCommand(editorState, command);
         if (newState) {
-          this.props.onChangeEx(newState);
+          this.props.onChange(newState);
           return "handled";
         }
+        // call original handleKeyCommand function if we don't handle it.
         if (this.props.handleKeyCommand) {
           return this.props.handleKeyCommand(command, editorState);
         }
@@ -12410,15 +12411,12 @@ function RichStyling(Editor) {
     }, {
       key: "render",
       value: function render() {
+        // extract handleKeyCommand prop because we want to replace it with our own.
         var _props = this.props,
             handleKeyCommand = _props.handleKeyCommand,
             props = _objectWithoutProperties(_props, ["handleKeyCommand"]);
 
-        return _react2.default.createElement(
-          Editor,
-          _extends({ handleKeyCommand: this.handleKeyCommand }, props),
-          this.props.children
-        );
+        return _react2.default.createElement(Editor, _extends({ handleKeyCommand: this.handleKeyCommand }, props));
       }
     }]);
 

@@ -1,7 +1,7 @@
 {
   "name": "aurora-mutate-rich-styling",
-  "version": "1.4.7",
-  "description": "Adds rich sytling (bold, italics, underlin) to any editor",
+  "version": "1.4.10",
+  "description": "Adds rich sytling (bold, italics, underline) to any editor",
   "main": "build/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

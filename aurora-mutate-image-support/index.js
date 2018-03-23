@@ -11,7 +11,7 @@ function Images(Editor) {
     constructor(props) {
       super(props);
       this.handleKeyCommand = this.handleKeyCommand.bind(this);
-      this.saveKeyBinding = this.saveKeyBinding.bind(this);
+      this.keyBinding = this.keyBinding.bind(this);
     }
 
     handleKeyCommand(command, editorState) {
@@ -25,7 +25,7 @@ function Images(Editor) {
 
       if (command === "insert-image") {
         const newState = imagePlugin.addImage(editorState, src);
-        this.props.onChangeEx(newState);
+        this.props.onChange(newState);
         return "handled";
       }
       if (this.props.handleKeyCommand) {
@@ -34,7 +34,7 @@ function Images(Editor) {
       return "not-handled";
     }
 
-    saveKeyBinding(e) {
+    keyBinding(e) {
       if (e.keyCode === 75 && hasCommandModifier(e)) {
         //command+k
         return "insert-image";
@@ -57,10 +57,9 @@ function Images(Editor) {
         <Editor
           plugins={plugins}
           handleKeyCommand={this.handleKeyCommand}
-          keyBindingFn={this.saveKeyBinding}
-          {...props}>
-          {this.props.children}
-        </Editor>
+          keyBindingFn={this.keyBinding}
+          {...props}
+        />
       );
     }
   };
