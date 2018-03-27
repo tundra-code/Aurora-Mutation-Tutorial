@@ -90,6 +90,36 @@ If the command is `insert-image`, we extract the selected text (complicated, I k
 using the draftjs image plugin. It then calls `this.props.onChange` to pass in the new state.
 Otherwise, we let `this.props.handleKeyCommand` handle it, if it exists.
 
+### Toolbar
+We want the functionality of `command+k` to be in the Aurora toolbar, so we register it:
+```
+window.toolbar.buttons.push({
+  icon: "🖼️",
+  command: "insert-image",
+  hint: "Insert image in place of selected URL/filepath"
+});
+```
+The `command` must match the command we use in `handleKeyCommand`.
+
+We also have to add this block of code:
+```
+componentDidUpdate(prevProps) {
+  const simulatedKeyCommand =
+    prevProps.simulatedKeyCommand === null &&
+    this.props.simulatedKeyCommand !== null;
+  if (simulatedKeyCommand) {
+    this.handleKeyCommand(
+      this.props.simulatedKeyCommand,
+      this.props.ourEditorState
+    );
+  }
+}
+```
+This code block checks to see if there is a new `simulatedKeyCommand` from the toolbar.
+If there is, we need to handle it. Anytime you modify `handleKeyCommand`, you must
+include this block of code.
+
+### Other
 Don't forget to bind functions in the constructor:
 ```
 constructor(props) {

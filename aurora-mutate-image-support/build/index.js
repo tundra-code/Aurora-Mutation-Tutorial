@@ -12457,6 +12457,14 @@ function Images(Editor) {
     }
 
     _createClass(_class, [{
+      key: "componentDidUpdate",
+      value: function componentDidUpdate(prevProps) {
+        var simulatedKeyCommand = prevProps.simulatedKeyCommand === null && this.props.simulatedKeyCommand !== null;
+        if (simulatedKeyCommand) {
+          this.handleKeyCommand(this.props.simulatedKeyCommand, this.props.ourEditorState);
+        }
+      }
+    }, {
       key: "handleKeyCommand",
       value: function handleKeyCommand(command, editorState) {
         if (command === "insert-image") {
@@ -12501,7 +12509,8 @@ function Images(Editor) {
         var _props = this.props,
             handleKeyCommand = _props.handleKeyCommand,
             keyBindingFn = _props.keyBindingFn,
-            props = _objectWithoutProperties(_props, ["handleKeyCommand", "keyBindingFn"]);
+            simulatedKeyCommand = _props.simulatedKeyCommand,
+            props = _objectWithoutProperties(_props, ["handleKeyCommand", "keyBindingFn", "simulatedKeyCommand"]);
 
         return _react2.default.createElement(Editor, _extends({
           plugins: plugins,
@@ -12514,6 +12523,12 @@ function Images(Editor) {
     return _class;
   }(_react2.default.Component);
 }
+
+window.toolbar.buttons.push({
+  icon: "🖼️",
+  command: "insert-image",
+  hint: "Insert image in place of selected URL/filepath"
+});
 
 module.exports.mutations = {
   BaseEditor: Images
