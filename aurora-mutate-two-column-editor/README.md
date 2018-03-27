@@ -177,10 +177,6 @@ In our case, it is simply a serialized version of the left and right editor stat
 You must place this in code in the same file where the functions it calls exists.
 In this example `emptyState` and `emptySerializedEditorState` exist in this function.
 ```
-// Initialize editor registry if needed.
-if (window.editors === undefined) {
-  window.editors = {};
-}
 // Add this two column editor to global registry
 window.editors.TwoColumnEditor = {
   emptyEditorState: emptyState(),

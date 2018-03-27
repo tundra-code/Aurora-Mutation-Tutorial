@@ -104,10 +104,6 @@ export function getSearchableText(state) {
   );
 }
 
-// Initialize editor registry if needed.
-if (window.editors === undefined) {
-  window.editors = {};
-}
 // Add this two column editor to global registry
 window.editors.TwoColumnEditor = {
   emptyEditorState: emptyState(),
