@@ -12424,6 +12424,22 @@ function RichStyling(Editor) {
   }(_react2.default.Component);
 }
 
+window.toolbar.toggleButtons.push({
+  icon: "B",
+  command: "bold",
+  hint: "bold text"
+});
+window.toolbar.toggleButtons.push({
+  icon: "I",
+  command: "italic",
+  hint: "italicize text"
+});
+window.toolbar.toggleButtons.push({
+  icon: "U",
+  command: "underline",
+  hint: "underline text"
+});
+
 module.exports.mutations = {
   BaseEditor: RichStyling
 };
