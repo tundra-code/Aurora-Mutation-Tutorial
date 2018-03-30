@@ -13,21 +13,39 @@ function RichStyling(Editor) {
     handleKeyCommand(command, editorState) {
       const newState = RichUtils.handleKeyCommand(editorState, command);
       if (newState) {
-        this.props.onChangeEx(newState);
+        this.props.onChange(newState);
         return "handled";
+      }
+      // call original handleKeyCommand function if we don't handle it.
+      if (this.props.handleKeyCommand) {
+        return this.props.handleKeyCommand(command, editorState);
       }
       return "not-handled";
     }
 
     render() {
-      return (
-        <Editor {...this.props} handleKeyCommand={this.handleKeyCommand}>
-          {this.props.children}
-        </Editor>
-      );
+      // extract handleKeyCommand prop because we want to replace it with our own.
+      const { handleKeyCommand, ...props } = this.props;
+      return <Editor handleKeyCommand={this.handleKeyCommand} {...props} />;
     }
   };
 }
+
+window.toolbar.toggleButtons.push({
+  icon: "B",
+  command: "bold",
+  hint: "bold text"
+});
+window.toolbar.toggleButtons.push({
+  icon: "I",
+  command: "italic",
+  hint: "italicize text"
+});
+window.toolbar.toggleButtons.push({
+  icon: "U",
+  command: "underline",
+  hint: "underline text"
+});
 
 module.exports.mutations = {
   BaseEditor: RichStyling

@@ -1,7 +1,7 @@
 {
   "name": "aurora-mutate-rich-styling",
-  "version": "1.4.3",
-  "description": "Adds rich sytling (bold, italics, underlin) to any editor",
+  "version": "1.4.13",
+  "description": "Adds rich sytling (bold, italics, underline) to any editor",
   "main": "build/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -21,6 +21,7 @@
     "babel-preset-react": "^6.24.1"
   },
   "dependencies": {
+    "babel-preset-stage-2": "^6.24.1",
     "draft-js": "^0.10.5",
     "react": "^16.2.0",
     "react-dom": "^16.2.0",

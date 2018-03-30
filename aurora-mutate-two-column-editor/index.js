@@ -1,5 +1,5 @@
 import React from "react";
-import { deSerialize, serialize, serPreview } from "./util";
+import { deSerialize, serialize, serPreview, getSearchableText } from "./util";
 import { Editor } from "draft-js";
 import "./style.css";
 
@@ -18,9 +18,7 @@ function twoColumnContentView(ContentView, api) {
     finishedLoadingContent = () => {
       this.props.note.getContent().then(content => {
         const editorState = deSerialize(content[this.props.note.mutationName]);
-        if (this.props.onContentLoaded) {
-          this.props.onContentLoaded(editorState);
-        }
+        this.props.onContentLoaded(editorState);
       });
     };
 
@@ -29,14 +27,14 @@ function twoColumnContentView(ContentView, api) {
       editorState.right = state;
       const serializedContent = serialize(editorState);
       const serializedPreview = serPreview(editorState);
+      const searchableText = getSearchableText(editorState);
 
-      if (this.props.onChangeEx) {
-        this.props.onChangeEx(
-          editorState,
-          serializedContent,
-          serializedPreview
-        );
-      }
+      this.props.onChange(
+        editorState,
+        serializedContent,
+        serializedPreview,
+        searchableText
+      );
     };
 
     onChangeLeft = state => {
@@ -44,20 +42,14 @@ function twoColumnContentView(ContentView, api) {
       editorState.left = state;
       const serializedContent = serialize(editorState);
       const serializedPreview = serPreview(editorState);
+      const searchableText = getSearchableText(editorState);
 
-      if (this.props.onChangeEx) {
-        this.props.onChangeEx(
-          editorState,
-          serializedContent,
-          serializedPreview
-        );
-      }
-    };
-
-    onBlur = () => {
-      if (this.props.onBlurEx) {
-        this.props.onBlurEx();
-      }
+      this.props.onChange(
+        editorState,
+        serializedContent,
+        serializedPreview,
+        searchableText
+      );
     };
 
     render() {
@@ -65,15 +57,16 @@ function twoColumnContentView(ContentView, api) {
         this.props.note &&
         this.props.note.mutationName === "TwoColumnEditor"
       ) {
+        const { onChange, ...props } = this.props;
         return (
-          <div>
+          <div className="two-column-editor">
             <div className="editor left-editor">
               <Editor
                 className="Editor1"
                 editorState={this.props.ourEditorState.left}
                 onChange={this.onChangeLeft}
-                onBlur={this.onBlur}
                 placeholder={"Change me!"}
+                {...props}
               />
             </div>
             <div className="editor right-editor">
@@ -81,8 +74,8 @@ function twoColumnContentView(ContentView, api) {
                 className="Editor2"
                 editorState={this.props.ourEditorState.right}
                 onChange={this.onChangeRight}
-                onBlur={this.onBlur}
                 placeholder={"Write Something!"}
+                {...props}
               />
             </div>
           </div>

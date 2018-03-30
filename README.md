@@ -32,7 +32,7 @@ Enter the following command into your command line
 
 ![npm init](https://i.imgur.com/rEk9owK.png)
 
-This command creates a package.json file and it will prompt you to enter in values for the fields of the `package.json`. The default values are fine to use.
+This command creates a package.json file and it will prompt you to enter in values for the fields of the `package.json`. Make sure to input `build/index.js` for `main`.
 
 ![package json](https://i.imgur.com/4kMpiWm.png)
 
@@ -120,13 +120,14 @@ const path = require("path");
 module.exports = {
   entry: "./index.js", //tells webpack where to start
   output: {
-    filename: "./build/bundle.js", //tells webpack the output
+    filename: "./build/index.js", //tells webpack the output
     libraryTarget: "commonjs2"
   },
   module: {
     loaders: [
       { test: /\.js$/, loader: "babel-loader", exclude: /node_modules/ },
-      { test: /\.jsx$/, loader: "babel-loader", exclude: /node_modules/ }
+      { test: /\.jsx$/, loader: "babel-loader", exclude: /node_modules/ },
+      { test: /\.css$/, loader: "style-loader!css-loader" }
     ]
   }
 };
@@ -145,9 +146,11 @@ Your `package.json` file should now look something like this
   "name": "aurora-mutate-purple-editor",
   "version": "1.0.0",
   "description": "Turns the aurora editor purple",
-  "main": "build/bundle.js",
+  "main": "build/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack",
+    "prepublish": "webpack"
   },
   "keywords": [
     "aurora",
@@ -168,10 +171,17 @@ Your `package.json` file should now look something like this
   }
 }
 ```
+
+### A note on editor mutations
+If you are writing a mutation that adds a new type of editor to the `window.editors` registry,
+then make sure that the name of the editor you are adding is listed in the `keywords` array of
+the `package.json`.
+
+### babelrc
 After you write your config file and run the previous npm commands, you'll have to create a `.babelrc` file in your main mutation folder. The contents of that file should be exactly as follows.
 ```
 {
-  "presets": ["env", "react"]
+  "presets": ["env", "react", "stage-0"]
 }
 ```
 
@@ -184,15 +194,15 @@ To publish a npm package you have to register yourself as a user. If you have al
 ```
 npm adduser //creates a new account for npm
 npm login   //logs onto npm
-npm publish //publishes your npm package
+npm publish //builds and publishes your npm package (if prepublish script is configured to "webpack")
 ```
 
 ![npm publish](https://i.imgur.com/m4lkqRA.png)
 ### Updating your npm package
 After publishing your package you can also update it by using the `npm version <update-type>` command, where `<update-type>` is either `patch`, `major`, or `minor`. Then run `npm publish` to publish your changes.
 ```
-npm version <update-type>   //updates your npm package
-npm publish                 //publishes your updated package
+npm version <update-type>   //updates version of your npm package
+npm publish                 //builds publishes your updated package
 ```
 
 ## Check out the Aurora Mutations Store!
