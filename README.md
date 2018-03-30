@@ -6,6 +6,8 @@ This is a simple tutorial for writing a mutation for the Aurora application. The
 4. publishing your mutation to npm
 
 Mutations allow our users to have ultimate flexibility with their note taking styles. A mutation can change most aspects of Aurora. For instance, if you like taking notes in a cornell style format, you can write a mutation that will allow you to do that. Don't like the way the previews look? You can write a mutation to change that.
+
+Check out the [mutation writing framework](https://github.com/rainmaker022/Aurora-Mutation-Framework) for a forkable project to ease the mutation creating process.
 ## npm
 First you’ll need to install node if you don’t already have it. That can be done with this link: [node download](https://nodejs.org/en/download/)
 
