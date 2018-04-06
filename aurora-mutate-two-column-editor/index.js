@@ -57,7 +57,7 @@ function twoColumnContentView(ContentView, api) {
         this.props.note &&
         this.props.note.mutationName === "TwoColumnEditor"
       ) {
-        const { onChange, ...props } = this.props;
+        const { onChange, isLoadingContent, ...props } = this.props;
         return (
           <div className="two-column-editor">
             <div className="editor left-editor">

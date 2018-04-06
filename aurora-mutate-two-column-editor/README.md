@@ -23,7 +23,7 @@ render() {
     this.props.note &&
     this.props.note.mutationName === "TwoColumnEditor"
   ) {
-    const { onChange, ...props } = this.props;
+    const { onChange, isLoadingContent, ...props } = this.props;
     return (
       <div className="two-column-editor">
         <div className="editor left-editor">
@@ -69,10 +69,10 @@ Looking at the left editor specifically:
   {...props}
 />
 ```
-We pass in `...props`, which is all the props for this component minus `onChange`. We extract
-`onChange` because we are modifying that behavior in our mutation.
+We pass in `...props`, which is all the props for this component minus `onChange` and `isLoadingContent`. We extract
+`onChange` and `isLoadingContent` because we are modifying that behavior in our mutation.
 ```
-const { onChange, ...props } = this.props;
+const { onChange, isLoadingContent, ...props } = this.props;
 ```
 This Editor's `editorState` is `this.props.ourEditorState.left` because we've designed editor state
 for this mutation to be essentially a `JSON` object like such:

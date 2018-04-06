@@ -6,6 +6,10 @@ This is a simple tutorial for writing a mutation for the Aurora application. The
 4. publishing your mutation to npm
 
 Mutations allow our users to have ultimate flexibility with their note taking styles. A mutation can change most aspects of Aurora. For instance, if you like taking notes in a cornell style format, you can write a mutation that will allow you to do that. Don't like the way the previews look? You can write a mutation to change that.
+
+## Sample Mutation Project
+If you don't want to go through the details of this tutorial, you can also just fork [this project](https://github.com/rainmaker022/Aurora-Mutation-Framework) and change a few strings and get on your way.
+
 ## npm
 First you’ll need to install node if you don’t already have it. That can be done with this link: [node download](https://nodejs.org/en/download/)
 
@@ -104,6 +108,13 @@ https://reactjs.org/docs/hello-world.html
 For more information about the React technique used to write mutations check this out:
 
 https://reactjs.org/docs/higher-order-components.html
+
+### Example Mutations
+- [aurora-mutate-rich-styling](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-rich-styling): simple mutation that adds rich styling (bold, italics, underline) to the editor.
+- [aurora-mutate-image-support](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-image-support): relatively simple mutation that gives user ability to insert image via URL.
+- [aurora-mutate-two-column-editor](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-two-column-editor): pretty simple mutation that gives users two fixed columns in their notes.
+- [aurora-mutate-many-column-editor](https://github.com/kmccrohan/aurora-mutate-many-column-editor):
+a more complex mutation that allows user to add/remove columns to their notes.
 
 
 ## Webpack

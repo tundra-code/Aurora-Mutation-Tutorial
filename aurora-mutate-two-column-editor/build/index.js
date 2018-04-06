@@ -12490,7 +12490,8 @@ function twoColumnContentView(ContentView, api) {
         if (this.props.note && this.props.note.mutationName === "TwoColumnEditor") {
           var _props = this.props,
               onChange = _props.onChange,
-              props = _objectWithoutProperties(_props, ["onChange"]);
+              isLoadingContent = _props.isLoadingContent,
+              props = _objectWithoutProperties(_props, ["onChange", "isLoadingContent"]);
 
           return _react2.default.createElement(
             "div",
