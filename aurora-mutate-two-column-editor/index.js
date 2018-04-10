@@ -1,20 +1,10 @@
 import React from "react";
 import { deSerialize, serialize, serPreview, getSearchableText } from "./util";
-import { Editor } from "draft-js";
+//import { Editor } from "draft-js";
 import "./style.css";
 
 function twoColumnContentView(ContentView, api) {
   return class extends React.Component {
-    componentDidUpdate(prevProps) {
-      const contentLoaded =
-        prevProps.isLoadingContent === true &&
-        this.props.isLoadingContent === false &&
-        this.props.note.mutationName === "TwoColumnEditor";
-      if (contentLoaded) {
-        this.finishedLoadingContent();
-      }
-    }
-
     finishedLoadingContent = () => {
       this.props.note.getContent().then(content => {
         const editorState = deSerialize(content[this.props.note.mutationName]);
@@ -57,6 +47,7 @@ function twoColumnContentView(ContentView, api) {
         this.props.note &&
         this.props.note.mutationName === "TwoColumnEditor"
       ) {
+        const Editor = api().Editor;
         const { onChange, isLoadingContent, ...props } = this.props;
         return (
           <div className="two-column-editor">
@@ -66,6 +57,8 @@ function twoColumnContentView(ContentView, api) {
                 editorState={this.props.ourEditorState.left}
                 onChange={this.onChangeLeft}
                 placeholder={"Change me!"}
+                isLoadingContent={isLoadingContent}
+                finishedLoadingContent={this.finishedLoadingContent}
                 {...props}
               />
             </div>

@@ -32,6 +32,8 @@ render() {
             editorState={this.props.ourEditorState.left}
             onChange={this.onChangeLeft}
             placeholder={"Change me!"}
+            isLoadingContent={isLoadingContent}
+            finishedLoadingContent={this.finishedLoadingContent}
             {...props}
           />
         </div>
@@ -66,11 +68,15 @@ Looking at the left editor specifically:
   editorState={this.props.ourEditorState.left}
   onChange={this.onChangeLeft}
   placeholder={"Change me!"}
+  isLoadingContent={isLoadingContent}
+  finishedLoadingContent={this.finishedLoadingContent}
   {...props}
 />
 ```
-We pass in `...props`, which is all the props for this component minus `onChange` and `isLoadingContent`. We extract
+We pass in `...props`, which is all the props for this component minus `onChange`. We extract
 `onChange` and `isLoadingContent` because we are modifying that behavior in our mutation.
+We give `isLoadingContent` and our function `this.finishedLoadingContent` to only the left editor
+so the behavior of loading content only occurs once.
 ```
 const { onChange, isLoadingContent, ...props } = this.props;
 ```
@@ -118,21 +124,7 @@ finishedLoadingContent = () => {
 ```
 This function just calls `note.getContent` and then deserializes it using our deserialization function.
 Then it passes the new editor state in `this.props.onContentLoaded`, and Aurora takes care of the rest.
-
-We also need to know when to call this `finishedLoadingContent` function, so we add:
-```
-componentDidUpdate(prevProps) {
-  const contentLoaded =
-    prevProps.isLoadingContent === true &&
-    this.props.isLoadingContent === false &&
-    this.props.note.mutationName === "TwoColumnEditor";
-  if (contentLoaded) {
-    this.finishedLoadingContent();
-  }
-}
-```
-Here, we just check if the previous state was loading content, we are no longer loading, and the selected
-note has a mutation name that matches our mutation name. This is the conditions for `finishedLoadingContent`.
+We pass this function as a prop to the first editor and it knows when to call this function.
 
 ## Util.js
 This file contains the serialization, deSerialize, preview, and searchable text functions. These functions are all pretty simple, but we'll look at a few for example.
