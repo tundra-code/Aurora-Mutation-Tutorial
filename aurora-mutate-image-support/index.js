@@ -14,18 +14,6 @@ function Images(Editor) {
       this.keyBinding = this.keyBinding.bind(this);
     }
 
-    componentDidUpdate(prevProps) {
-      const simulatedKeyCommand =
-        prevProps.simulatedKeyCommand === null &&
-        this.props.simulatedKeyCommand !== null;
-      if (simulatedKeyCommand) {
-        this.handleKeyCommand(
-          this.props.simulatedKeyCommand,
-          this.props.ourEditorState
-        );
-      }
-    }
-
     handleKeyCommand(command, editorState) {
       if (command === "insert-image") {
         const selectionState = editorState.getSelection();
@@ -64,12 +52,7 @@ function Images(Editor) {
       }
       plugins.push(imagePlugin);
 
-      const {
-        handleKeyCommand,
-        keyBindingFn,
-        simulatedKeyCommand,
-        ...props
-      } = this.props;
+      const { handleKeyCommand, keyBindingFn, ...props } = this.props;
       return (
         <Editor
           plugins={plugins}
