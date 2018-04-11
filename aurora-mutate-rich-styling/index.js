@@ -3,9 +3,31 @@ import styled from "styled-components";
 import { RichUtils } from "draft-js";
 import createInlineToolbarPlugin from "draft-js-inline-toolbar-plugin";
 import "draft-js-inline-toolbar-plugin/lib/plugin.css";
+import {
+  ItalicButton,
+  BoldButton,
+  UnderlineButton,
+  CodeButton,
+  UnorderedListButton,
+  OrderedListButton,
+  BlockquoteButton,
+  CodeBlockButton
+} from "draft-js-buttons";
+import "./style.css";
 
 // add inline toolbar for styling
-const inlineToolbarPlugin = createInlineToolbarPlugin();
+const inlineToolbarPlugin = createInlineToolbarPlugin({
+  structure: [
+    BoldButton,
+    ItalicButton,
+    UnderlineButton,
+    CodeButton,
+    UnorderedListButton,
+    OrderedListButton,
+    BlockquoteButton,
+    CodeBlockButton
+  ]
+});
 const { InlineToolbar } = inlineToolbarPlugin;
 
 function RichStyling(Editor) {
