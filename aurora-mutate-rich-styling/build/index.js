@@ -61,7 +61,7 @@ module.exports =
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 75);
+/******/ 	return __webpack_require__(__webpack_require__.s = 72);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -316,6 +316,572 @@ module.exports = invariant;
 
 /***/ }),
 /* 2 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * @providesModule EditorState
+ * 
+ */
+
+
+
+var _assign = __webpack_require__(5);
+
+var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var BlockTree = __webpack_require__(45);
+var ContentState = __webpack_require__(31);
+var EditorBidiService = __webpack_require__(98);
+var Immutable = __webpack_require__(3);
+var SelectionState = __webpack_require__(16);
+
+var OrderedSet = Immutable.OrderedSet,
+    Record = Immutable.Record,
+    Stack = Immutable.Stack;
+
+
+var defaultRecord = {
+  allowUndo: true,
+  currentContent: null,
+  decorator: null,
+  directionMap: null,
+  forceSelection: false,
+  inCompositionMode: false,
+  inlineStyleOverride: null,
+  lastChangeType: null,
+  nativelyRenderedContent: null,
+  redoStack: Stack(),
+  selection: null,
+  treeMap: null,
+  undoStack: Stack()
+};
+
+var EditorStateRecord = Record(defaultRecord);
+
+var EditorState = function () {
+  EditorState.createEmpty = function createEmpty(decorator) {
+    return EditorState.createWithContent(ContentState.createFromText(''), decorator);
+  };
+
+  EditorState.createWithContent = function createWithContent(contentState, decorator) {
+    var firstKey = contentState.getBlockMap().first().getKey();
+    return EditorState.create({
+      currentContent: contentState,
+      undoStack: Stack(),
+      redoStack: Stack(),
+      decorator: decorator || null,
+      selection: SelectionState.createEmpty(firstKey)
+    });
+  };
+
+  EditorState.create = function create(config) {
+    var currentContent = config.currentContent,
+        decorator = config.decorator;
+
+    var recordConfig = _extends({}, config, {
+      treeMap: generateNewTreeMap(currentContent, decorator),
+      directionMap: EditorBidiService.getDirectionMap(currentContent)
+    });
+    return new EditorState(new EditorStateRecord(recordConfig));
+  };
+
+  EditorState.set = function set(editorState, put) {
+    var map = editorState.getImmutable().withMutations(function (state) {
+      var existingDecorator = state.get('decorator');
+      var decorator = existingDecorator;
+      if (put.decorator === null) {
+        decorator = null;
+      } else if (put.decorator) {
+        decorator = put.decorator;
+      }
+
+      var newContent = put.currentContent || editorState.getCurrentContent();
+
+      if (decorator !== existingDecorator) {
+        var treeMap = state.get('treeMap');
+        var newTreeMap;
+        if (decorator && existingDecorator) {
+          newTreeMap = regenerateTreeForNewDecorator(newContent, newContent.getBlockMap(), treeMap, decorator, existingDecorator);
+        } else {
+          newTreeMap = generateNewTreeMap(newContent, decorator);
+        }
+
+        state.merge({
+          decorator: decorator,
+          treeMap: newTreeMap,
+          nativelyRenderedContent: null
+        });
+        return;
+      }
+
+      var existingContent = editorState.getCurrentContent();
+      if (newContent !== existingContent) {
+        state.set('treeMap', regenerateTreeForNewBlocks(editorState, newContent.getBlockMap(), newContent.getEntityMap(), decorator));
+      }
+
+      state.merge(put);
+    });
+
+    return new EditorState(map);
+  };
+
+  EditorState.prototype.toJS = function toJS() {
+    return this.getImmutable().toJS();
+  };
+
+  EditorState.prototype.getAllowUndo = function getAllowUndo() {
+    return this.getImmutable().get('allowUndo');
+  };
+
+  EditorState.prototype.getCurrentContent = function getCurrentContent() {
+    return this.getImmutable().get('currentContent');
+  };
+
+  EditorState.prototype.getUndoStack = function getUndoStack() {
+    return this.getImmutable().get('undoStack');
+  };
+
+  EditorState.prototype.getRedoStack = function getRedoStack() {
+    return this.getImmutable().get('redoStack');
+  };
+
+  EditorState.prototype.getSelection = function getSelection() {
+    return this.getImmutable().get('selection');
+  };
+
+  EditorState.prototype.getDecorator = function getDecorator() {
+    return this.getImmutable().get('decorator');
+  };
+
+  EditorState.prototype.isInCompositionMode = function isInCompositionMode() {
+    return this.getImmutable().get('inCompositionMode');
+  };
+
+  EditorState.prototype.mustForceSelection = function mustForceSelection() {
+    return this.getImmutable().get('forceSelection');
+  };
+
+  EditorState.prototype.getNativelyRenderedContent = function getNativelyRenderedContent() {
+    return this.getImmutable().get('nativelyRenderedContent');
+  };
+
+  EditorState.prototype.getLastChangeType = function getLastChangeType() {
+    return this.getImmutable().get('lastChangeType');
+  };
+
+  /**
+   * While editing, the user may apply inline style commands with a collapsed
+   * cursor, intending to type text that adopts the specified style. In this
+   * case, we track the specified style as an "override" that takes precedence
+   * over the inline style of the text adjacent to the cursor.
+   *
+   * If null, there is no override in place.
+   */
+
+
+  EditorState.prototype.getInlineStyleOverride = function getInlineStyleOverride() {
+    return this.getImmutable().get('inlineStyleOverride');
+  };
+
+  EditorState.setInlineStyleOverride = function setInlineStyleOverride(editorState, inlineStyleOverride) {
+    return EditorState.set(editorState, { inlineStyleOverride: inlineStyleOverride });
+  };
+
+  /**
+   * Get the appropriate inline style for the editor state. If an
+   * override is in place, use it. Otherwise, the current style is
+   * based on the location of the selection state.
+   */
+
+
+  EditorState.prototype.getCurrentInlineStyle = function getCurrentInlineStyle() {
+    var override = this.getInlineStyleOverride();
+    if (override != null) {
+      return override;
+    }
+
+    var content = this.getCurrentContent();
+    var selection = this.getSelection();
+
+    if (selection.isCollapsed()) {
+      return getInlineStyleForCollapsedSelection(content, selection);
+    }
+
+    return getInlineStyleForNonCollapsedSelection(content, selection);
+  };
+
+  EditorState.prototype.getBlockTree = function getBlockTree(blockKey) {
+    return this.getImmutable().getIn(['treeMap', blockKey]);
+  };
+
+  EditorState.prototype.isSelectionAtStartOfContent = function isSelectionAtStartOfContent() {
+    var firstKey = this.getCurrentContent().getBlockMap().first().getKey();
+    return this.getSelection().hasEdgeWithin(firstKey, 0, 0);
+  };
+
+  EditorState.prototype.isSelectionAtEndOfContent = function isSelectionAtEndOfContent() {
+    var content = this.getCurrentContent();
+    var blockMap = content.getBlockMap();
+    var last = blockMap.last();
+    var end = last.getLength();
+    return this.getSelection().hasEdgeWithin(last.getKey(), end, end);
+  };
+
+  EditorState.prototype.getDirectionMap = function getDirectionMap() {
+    return this.getImmutable().get('directionMap');
+  };
+
+  /**
+   * Incorporate native DOM selection changes into the EditorState. This
+   * method can be used when we simply want to accept whatever the DOM
+   * has given us to represent selection, and we do not need to re-render
+   * the editor.
+   *
+   * To forcibly move the DOM selection, see `EditorState.forceSelection`.
+   */
+
+
+  EditorState.acceptSelection = function acceptSelection(editorState, selection) {
+    return updateSelection(editorState, selection, false);
+  };
+
+  /**
+   * At times, we need to force the DOM selection to be where we
+   * need it to be. This can occur when the anchor or focus nodes
+   * are non-text nodes, for instance. In this case, we want to trigger
+   * a re-render of the editor, which in turn forces selection into
+   * the correct place in the DOM. The `forceSelection` method
+   * accomplishes this.
+   *
+   * This method should be used in cases where you need to explicitly
+   * move the DOM selection from one place to another without a change
+   * in ContentState.
+   */
+
+
+  EditorState.forceSelection = function forceSelection(editorState, selection) {
+    if (!selection.getHasFocus()) {
+      selection = selection.set('hasFocus', true);
+    }
+    return updateSelection(editorState, selection, true);
+  };
+
+  /**
+   * Move selection to the end of the editor without forcing focus.
+   */
+
+
+  EditorState.moveSelectionToEnd = function moveSelectionToEnd(editorState) {
+    var content = editorState.getCurrentContent();
+    var lastBlock = content.getLastBlock();
+    var lastKey = lastBlock.getKey();
+    var length = lastBlock.getLength();
+
+    return EditorState.acceptSelection(editorState, new SelectionState({
+      anchorKey: lastKey,
+      anchorOffset: length,
+      focusKey: lastKey,
+      focusOffset: length,
+      isBackward: false
+    }));
+  };
+
+  /**
+   * Force focus to the end of the editor. This is useful in scenarios
+   * where we want to programmatically focus the input and it makes sense
+   * to allow the user to continue working seamlessly.
+   */
+
+
+  EditorState.moveFocusToEnd = function moveFocusToEnd(editorState) {
+    var afterSelectionMove = EditorState.moveSelectionToEnd(editorState);
+    return EditorState.forceSelection(afterSelectionMove, afterSelectionMove.getSelection());
+  };
+
+  /**
+   * Push the current ContentState onto the undo stack if it should be
+   * considered a boundary state, and set the provided ContentState as the
+   * new current content.
+   */
+
+
+  EditorState.push = function push(editorState, contentState, changeType) {
+    if (editorState.getCurrentContent() === contentState) {
+      return editorState;
+    }
+
+    var forceSelection = changeType !== 'insert-characters';
+    var directionMap = EditorBidiService.getDirectionMap(contentState, editorState.getDirectionMap());
+
+    if (!editorState.getAllowUndo()) {
+      return EditorState.set(editorState, {
+        currentContent: contentState,
+        directionMap: directionMap,
+        lastChangeType: changeType,
+        selection: contentState.getSelectionAfter(),
+        forceSelection: forceSelection,
+        inlineStyleOverride: null
+      });
+    }
+
+    var selection = editorState.getSelection();
+    var currentContent = editorState.getCurrentContent();
+    var undoStack = editorState.getUndoStack();
+    var newContent = contentState;
+
+    if (selection !== currentContent.getSelectionAfter() || mustBecomeBoundary(editorState, changeType)) {
+      undoStack = undoStack.push(currentContent);
+      newContent = newContent.set('selectionBefore', selection);
+    } else if (changeType === 'insert-characters' || changeType === 'backspace-character' || changeType === 'delete-character') {
+      // Preserve the previous selection.
+      newContent = newContent.set('selectionBefore', currentContent.getSelectionBefore());
+    }
+
+    var inlineStyleOverride = editorState.getInlineStyleOverride();
+
+    // Don't discard inline style overrides for the following change types:
+    var overrideChangeTypes = ['adjust-depth', 'change-block-type', 'split-block'];
+
+    if (overrideChangeTypes.indexOf(changeType) === -1) {
+      inlineStyleOverride = null;
+    }
+
+    var editorStateChanges = {
+      currentContent: newContent,
+      directionMap: directionMap,
+      undoStack: undoStack,
+      redoStack: Stack(),
+      lastChangeType: changeType,
+      selection: contentState.getSelectionAfter(),
+      forceSelection: forceSelection,
+      inlineStyleOverride: inlineStyleOverride
+    };
+
+    return EditorState.set(editorState, editorStateChanges);
+  };
+
+  /**
+   * Make the top ContentState in the undo stack the new current content and
+   * push the current content onto the redo stack.
+   */
+
+
+  EditorState.undo = function undo(editorState) {
+    if (!editorState.getAllowUndo()) {
+      return editorState;
+    }
+
+    var undoStack = editorState.getUndoStack();
+    var newCurrentContent = undoStack.peek();
+    if (!newCurrentContent) {
+      return editorState;
+    }
+
+    var currentContent = editorState.getCurrentContent();
+    var directionMap = EditorBidiService.getDirectionMap(newCurrentContent, editorState.getDirectionMap());
+
+    return EditorState.set(editorState, {
+      currentContent: newCurrentContent,
+      directionMap: directionMap,
+      undoStack: undoStack.shift(),
+      redoStack: editorState.getRedoStack().push(currentContent),
+      forceSelection: true,
+      inlineStyleOverride: null,
+      lastChangeType: 'undo',
+      nativelyRenderedContent: null,
+      selection: currentContent.getSelectionBefore()
+    });
+  };
+
+  /**
+   * Make the top ContentState in the redo stack the new current content and
+   * push the current content onto the undo stack.
+   */
+
+
+  EditorState.redo = function redo(editorState) {
+    if (!editorState.getAllowUndo()) {
+      return editorState;
+    }
+
+    var redoStack = editorState.getRedoStack();
+    var newCurrentContent = redoStack.peek();
+    if (!newCurrentContent) {
+      return editorState;
+    }
+
+    var currentContent = editorState.getCurrentContent();
+    var directionMap = EditorBidiService.getDirectionMap(newCurrentContent, editorState.getDirectionMap());
+
+    return EditorState.set(editorState, {
+      currentContent: newCurrentContent,
+      directionMap: directionMap,
+      undoStack: editorState.getUndoStack().push(currentContent),
+      redoStack: redoStack.shift(),
+      forceSelection: true,
+      inlineStyleOverride: null,
+      lastChangeType: 'redo',
+      nativelyRenderedContent: null,
+      selection: newCurrentContent.getSelectionAfter()
+    });
+  };
+
+  /**
+   * Not for public consumption.
+   */
+
+
+  function EditorState(immutable) {
+    _classCallCheck(this, EditorState);
+
+    this._immutable = immutable;
+  }
+
+  /**
+   * Not for public consumption.
+   */
+
+
+  EditorState.prototype.getImmutable = function getImmutable() {
+    return this._immutable;
+  };
+
+  return EditorState;
+}();
+
+/**
+ * Set the supplied SelectionState as the new current selection, and set
+ * the `force` flag to trigger manual selection placement by the view.
+ */
+
+
+function updateSelection(editorState, selection, forceSelection) {
+  return EditorState.set(editorState, {
+    selection: selection,
+    forceSelection: forceSelection,
+    nativelyRenderedContent: null,
+    inlineStyleOverride: null
+  });
+}
+
+/**
+ * Regenerate the entire tree map for a given ContentState and decorator.
+ * Returns an OrderedMap that maps all available ContentBlock objects.
+ */
+function generateNewTreeMap(contentState, decorator) {
+  return contentState.getBlockMap().map(function (block) {
+    return BlockTree.generate(contentState, block, decorator);
+  }).toOrderedMap();
+}
+
+/**
+ * Regenerate tree map objects for all ContentBlocks that have changed
+ * between the current editorState and newContent. Returns an OrderedMap
+ * with only changed regenerated tree map objects.
+ */
+function regenerateTreeForNewBlocks(editorState, newBlockMap, newEntityMap, decorator) {
+  var contentState = editorState.getCurrentContent().set('entityMap', newEntityMap);
+  var prevBlockMap = contentState.getBlockMap();
+  var prevTreeMap = editorState.getImmutable().get('treeMap');
+  return prevTreeMap.merge(newBlockMap.toSeq().filter(function (block, key) {
+    return block !== prevBlockMap.get(key);
+  }).map(function (block) {
+    return BlockTree.generate(contentState, block, decorator);
+  }));
+}
+
+/**
+ * Generate tree map objects for a new decorator object, preserving any
+ * decorations that are unchanged from the previous decorator.
+ *
+ * Note that in order for this to perform optimally, decoration Lists for
+ * decorators should be preserved when possible to allow for direct immutable
+ * List comparison.
+ */
+function regenerateTreeForNewDecorator(content, blockMap, previousTreeMap, decorator, existingDecorator) {
+  return previousTreeMap.merge(blockMap.toSeq().filter(function (block) {
+    return decorator.getDecorations(block, content) !== existingDecorator.getDecorations(block, content);
+  }).map(function (block) {
+    return BlockTree.generate(content, block, decorator);
+  }));
+}
+
+/**
+ * Return whether a change should be considered a boundary state, given
+ * the previous change type. Allows us to discard potential boundary states
+ * during standard typing or deletion behavior.
+ */
+function mustBecomeBoundary(editorState, changeType) {
+  var lastChangeType = editorState.getLastChangeType();
+  return changeType !== lastChangeType || changeType !== 'insert-characters' && changeType !== 'backspace-character' && changeType !== 'delete-character';
+}
+
+function getInlineStyleForCollapsedSelection(content, selection) {
+  var startKey = selection.getStartKey();
+  var startOffset = selection.getStartOffset();
+  var startBlock = content.getBlockForKey(startKey);
+
+  // If the cursor is not at the start of the block, look backward to
+  // preserve the style of the preceding character.
+  if (startOffset > 0) {
+    return startBlock.getInlineStyleAt(startOffset - 1);
+  }
+
+  // The caret is at position zero in this block. If the block has any
+  // text at all, use the style of the first character.
+  if (startBlock.getLength()) {
+    return startBlock.getInlineStyleAt(0);
+  }
+
+  // Otherwise, look upward in the document to find the closest character.
+  return lookUpwardForInlineStyle(content, startKey);
+}
+
+function getInlineStyleForNonCollapsedSelection(content, selection) {
+  var startKey = selection.getStartKey();
+  var startOffset = selection.getStartOffset();
+  var startBlock = content.getBlockForKey(startKey);
+
+  // If there is a character just inside the selection, use its style.
+  if (startOffset < startBlock.getLength()) {
+    return startBlock.getInlineStyleAt(startOffset);
+  }
+
+  // Check if the selection at the end of a non-empty block. Use the last
+  // style in the block.
+  if (startOffset > 0) {
+    return startBlock.getInlineStyleAt(startOffset - 1);
+  }
+
+  // Otherwise, look upward in the document to find the closest character.
+  return lookUpwardForInlineStyle(content, startKey);
+}
+
+function lookUpwardForInlineStyle(content, fromKey) {
+  var lastNonEmpty = content.getBlockMap().reverse().skipUntil(function (_, k) {
+    return k === fromKey;
+  }).skip(1).skipUntil(function (block, _) {
+    return block.getLength();
+  }).first();
+
+  if (lastNonEmpty) return lastNonEmpty.getInlineStyleAt(lastNonEmpty.getLength() - 1);
+  return OrderedSet();
+}
+
+module.exports = EditorState;
+
+/***/ }),
+/* 3 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /**
@@ -5302,671 +5868,7 @@ module.exports = invariant;
 }));
 
 /***/ }),
-/* 3 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule EditorState
- * @format
- * 
- */
-
-
-
-var _assign = __webpack_require__(4);
-
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-var BlockTree = __webpack_require__(48);
-var ContentState = __webpack_require__(33);
-var EditorBidiService = __webpack_require__(101);
-var Immutable = __webpack_require__(2);
-var SelectionState = __webpack_require__(17);
-
-var OrderedSet = Immutable.OrderedSet,
-    Record = Immutable.Record,
-    Stack = Immutable.Stack;
-
-
-var defaultRecord = {
-  allowUndo: true,
-  currentContent: null,
-  decorator: null,
-  directionMap: null,
-  forceSelection: false,
-  inCompositionMode: false,
-  inlineStyleOverride: null,
-  lastChangeType: null,
-  nativelyRenderedContent: null,
-  redoStack: Stack(),
-  selection: null,
-  treeMap: null,
-  undoStack: Stack()
-};
-
-var EditorStateRecord = Record(defaultRecord);
-
-var EditorState = function () {
-  EditorState.createEmpty = function createEmpty(decorator) {
-    return EditorState.createWithContent(ContentState.createFromText(''), decorator);
-  };
-
-  EditorState.createWithContent = function createWithContent(contentState, decorator) {
-    var firstKey = contentState.getBlockMap().first().getKey();
-    return EditorState.create({
-      currentContent: contentState,
-      undoStack: Stack(),
-      redoStack: Stack(),
-      decorator: decorator || null,
-      selection: SelectionState.createEmpty(firstKey)
-    });
-  };
-
-  EditorState.create = function create(config) {
-    var currentContent = config.currentContent,
-        decorator = config.decorator;
-
-    var recordConfig = _extends({}, config, {
-      treeMap: generateNewTreeMap(currentContent, decorator),
-      directionMap: EditorBidiService.getDirectionMap(currentContent)
-    });
-    return new EditorState(new EditorStateRecord(recordConfig));
-  };
-
-  EditorState.set = function set(editorState, put) {
-    var map = editorState.getImmutable().withMutations(function (state) {
-      var existingDecorator = state.get('decorator');
-      var decorator = existingDecorator;
-      if (put.decorator === null) {
-        decorator = null;
-      } else if (put.decorator) {
-        decorator = put.decorator;
-      }
-
-      var newContent = put.currentContent || editorState.getCurrentContent();
-
-      if (decorator !== existingDecorator) {
-        var treeMap = state.get('treeMap');
-        var newTreeMap;
-        if (decorator && existingDecorator) {
-          newTreeMap = regenerateTreeForNewDecorator(newContent, newContent.getBlockMap(), treeMap, decorator, existingDecorator);
-        } else {
-          newTreeMap = generateNewTreeMap(newContent, decorator);
-        }
-
-        state.merge({
-          decorator: decorator,
-          treeMap: newTreeMap,
-          nativelyRenderedContent: null
-        });
-        return;
-      }
-
-      var existingContent = editorState.getCurrentContent();
-      if (newContent !== existingContent) {
-        state.set('treeMap', regenerateTreeForNewBlocks(editorState, newContent.getBlockMap(), newContent.getEntityMap(), decorator));
-      }
-
-      state.merge(put);
-    });
-
-    return new EditorState(map);
-  };
-
-  EditorState.prototype.toJS = function toJS() {
-    return this.getImmutable().toJS();
-  };
-
-  EditorState.prototype.getAllowUndo = function getAllowUndo() {
-    return this.getImmutable().get('allowUndo');
-  };
-
-  EditorState.prototype.getCurrentContent = function getCurrentContent() {
-    return this.getImmutable().get('currentContent');
-  };
-
-  EditorState.prototype.getUndoStack = function getUndoStack() {
-    return this.getImmutable().get('undoStack');
-  };
-
-  EditorState.prototype.getRedoStack = function getRedoStack() {
-    return this.getImmutable().get('redoStack');
-  };
-
-  EditorState.prototype.getSelection = function getSelection() {
-    return this.getImmutable().get('selection');
-  };
-
-  EditorState.prototype.getDecorator = function getDecorator() {
-    return this.getImmutable().get('decorator');
-  };
-
-  EditorState.prototype.isInCompositionMode = function isInCompositionMode() {
-    return this.getImmutable().get('inCompositionMode');
-  };
-
-  EditorState.prototype.mustForceSelection = function mustForceSelection() {
-    return this.getImmutable().get('forceSelection');
-  };
-
-  EditorState.prototype.getNativelyRenderedContent = function getNativelyRenderedContent() {
-    return this.getImmutable().get('nativelyRenderedContent');
-  };
-
-  EditorState.prototype.getLastChangeType = function getLastChangeType() {
-    return this.getImmutable().get('lastChangeType');
-  };
-
-  /**
-   * While editing, the user may apply inline style commands with a collapsed
-   * cursor, intending to type text that adopts the specified style. In this
-   * case, we track the specified style as an "override" that takes precedence
-   * over the inline style of the text adjacent to the cursor.
-   *
-   * If null, there is no override in place.
-   */
-
-
-  EditorState.prototype.getInlineStyleOverride = function getInlineStyleOverride() {
-    return this.getImmutable().get('inlineStyleOverride');
-  };
-
-  EditorState.setInlineStyleOverride = function setInlineStyleOverride(editorState, inlineStyleOverride) {
-    return EditorState.set(editorState, { inlineStyleOverride: inlineStyleOverride });
-  };
-
-  /**
-   * Get the appropriate inline style for the editor state. If an
-   * override is in place, use it. Otherwise, the current style is
-   * based on the location of the selection state.
-   */
-
-
-  EditorState.prototype.getCurrentInlineStyle = function getCurrentInlineStyle() {
-    var override = this.getInlineStyleOverride();
-    if (override != null) {
-      return override;
-    }
-
-    var content = this.getCurrentContent();
-    var selection = this.getSelection();
-
-    if (selection.isCollapsed()) {
-      return getInlineStyleForCollapsedSelection(content, selection);
-    }
-
-    return getInlineStyleForNonCollapsedSelection(content, selection);
-  };
-
-  EditorState.prototype.getBlockTree = function getBlockTree(blockKey) {
-    return this.getImmutable().getIn(['treeMap', blockKey]);
-  };
-
-  EditorState.prototype.isSelectionAtStartOfContent = function isSelectionAtStartOfContent() {
-    var firstKey = this.getCurrentContent().getBlockMap().first().getKey();
-    return this.getSelection().hasEdgeWithin(firstKey, 0, 0);
-  };
-
-  EditorState.prototype.isSelectionAtEndOfContent = function isSelectionAtEndOfContent() {
-    var content = this.getCurrentContent();
-    var blockMap = content.getBlockMap();
-    var last = blockMap.last();
-    var end = last.getLength();
-    return this.getSelection().hasEdgeWithin(last.getKey(), end, end);
-  };
-
-  EditorState.prototype.getDirectionMap = function getDirectionMap() {
-    return this.getImmutable().get('directionMap');
-  };
-
-  /**
-   * Incorporate native DOM selection changes into the EditorState. This
-   * method can be used when we simply want to accept whatever the DOM
-   * has given us to represent selection, and we do not need to re-render
-   * the editor.
-   *
-   * To forcibly move the DOM selection, see `EditorState.forceSelection`.
-   */
-
-
-  EditorState.acceptSelection = function acceptSelection(editorState, selection) {
-    return updateSelection(editorState, selection, false);
-  };
-
-  /**
-   * At times, we need to force the DOM selection to be where we
-   * need it to be. This can occur when the anchor or focus nodes
-   * are non-text nodes, for instance. In this case, we want to trigger
-   * a re-render of the editor, which in turn forces selection into
-   * the correct place in the DOM. The `forceSelection` method
-   * accomplishes this.
-   *
-   * This method should be used in cases where you need to explicitly
-   * move the DOM selection from one place to another without a change
-   * in ContentState.
-   */
-
-
-  EditorState.forceSelection = function forceSelection(editorState, selection) {
-    if (!selection.getHasFocus()) {
-      selection = selection.set('hasFocus', true);
-    }
-    return updateSelection(editorState, selection, true);
-  };
-
-  /**
-   * Move selection to the end of the editor without forcing focus.
-   */
-
-
-  EditorState.moveSelectionToEnd = function moveSelectionToEnd(editorState) {
-    var content = editorState.getCurrentContent();
-    var lastBlock = content.getLastBlock();
-    var lastKey = lastBlock.getKey();
-    var length = lastBlock.getLength();
-
-    return EditorState.acceptSelection(editorState, new SelectionState({
-      anchorKey: lastKey,
-      anchorOffset: length,
-      focusKey: lastKey,
-      focusOffset: length,
-      isBackward: false
-    }));
-  };
-
-  /**
-   * Force focus to the end of the editor. This is useful in scenarios
-   * where we want to programmatically focus the input and it makes sense
-   * to allow the user to continue working seamlessly.
-   */
-
-
-  EditorState.moveFocusToEnd = function moveFocusToEnd(editorState) {
-    var afterSelectionMove = EditorState.moveSelectionToEnd(editorState);
-    return EditorState.forceSelection(afterSelectionMove, afterSelectionMove.getSelection());
-  };
-
-  /**
-   * Push the current ContentState onto the undo stack if it should be
-   * considered a boundary state, and set the provided ContentState as the
-   * new current content.
-   */
-
-
-  EditorState.push = function push(editorState, contentState, changeType) {
-    if (editorState.getCurrentContent() === contentState) {
-      return editorState;
-    }
-
-    var forceSelection = changeType !== 'insert-characters';
-    var directionMap = EditorBidiService.getDirectionMap(contentState, editorState.getDirectionMap());
-
-    if (!editorState.getAllowUndo()) {
-      return EditorState.set(editorState, {
-        currentContent: contentState,
-        directionMap: directionMap,
-        lastChangeType: changeType,
-        selection: contentState.getSelectionAfter(),
-        forceSelection: forceSelection,
-        inlineStyleOverride: null
-      });
-    }
-
-    var selection = editorState.getSelection();
-    var currentContent = editorState.getCurrentContent();
-    var undoStack = editorState.getUndoStack();
-    var newContent = contentState;
-
-    if (selection !== currentContent.getSelectionAfter() || mustBecomeBoundary(editorState, changeType)) {
-      undoStack = undoStack.push(currentContent);
-      newContent = newContent.set('selectionBefore', selection);
-    } else if (changeType === 'insert-characters' || changeType === 'backspace-character' || changeType === 'delete-character') {
-      // Preserve the previous selection.
-      newContent = newContent.set('selectionBefore', currentContent.getSelectionBefore());
-    }
-
-    var inlineStyleOverride = editorState.getInlineStyleOverride();
-
-    // Don't discard inline style overrides for the following change types:
-    var overrideChangeTypes = ['adjust-depth', 'change-block-type', 'split-block'];
-
-    if (overrideChangeTypes.indexOf(changeType) === -1) {
-      inlineStyleOverride = null;
-    }
-
-    var editorStateChanges = {
-      currentContent: newContent,
-      directionMap: directionMap,
-      undoStack: undoStack,
-      redoStack: Stack(),
-      lastChangeType: changeType,
-      selection: contentState.getSelectionAfter(),
-      forceSelection: forceSelection,
-      inlineStyleOverride: inlineStyleOverride
-    };
-
-    return EditorState.set(editorState, editorStateChanges);
-  };
-
-  /**
-   * Make the top ContentState in the undo stack the new current content and
-   * push the current content onto the redo stack.
-   */
-
-
-  EditorState.undo = function undo(editorState) {
-    if (!editorState.getAllowUndo()) {
-      return editorState;
-    }
-
-    var undoStack = editorState.getUndoStack();
-    var newCurrentContent = undoStack.peek();
-    if (!newCurrentContent) {
-      return editorState;
-    }
-
-    var currentContent = editorState.getCurrentContent();
-    var directionMap = EditorBidiService.getDirectionMap(newCurrentContent, editorState.getDirectionMap());
-
-    return EditorState.set(editorState, {
-      currentContent: newCurrentContent,
-      directionMap: directionMap,
-      undoStack: undoStack.shift(),
-      redoStack: editorState.getRedoStack().push(currentContent),
-      forceSelection: true,
-      inlineStyleOverride: null,
-      lastChangeType: 'undo',
-      nativelyRenderedContent: null,
-      selection: currentContent.getSelectionBefore()
-    });
-  };
-
-  /**
-   * Make the top ContentState in the redo stack the new current content and
-   * push the current content onto the undo stack.
-   */
-
-
-  EditorState.redo = function redo(editorState) {
-    if (!editorState.getAllowUndo()) {
-      return editorState;
-    }
-
-    var redoStack = editorState.getRedoStack();
-    var newCurrentContent = redoStack.peek();
-    if (!newCurrentContent) {
-      return editorState;
-    }
-
-    var currentContent = editorState.getCurrentContent();
-    var directionMap = EditorBidiService.getDirectionMap(newCurrentContent, editorState.getDirectionMap());
-
-    return EditorState.set(editorState, {
-      currentContent: newCurrentContent,
-      directionMap: directionMap,
-      undoStack: editorState.getUndoStack().push(currentContent),
-      redoStack: redoStack.shift(),
-      forceSelection: true,
-      inlineStyleOverride: null,
-      lastChangeType: 'redo',
-      nativelyRenderedContent: null,
-      selection: newCurrentContent.getSelectionAfter()
-    });
-  };
-
-  /**
-   * Not for public consumption.
-   */
-
-
-  function EditorState(immutable) {
-    _classCallCheck(this, EditorState);
-
-    this._immutable = immutable;
-  }
-
-  /**
-   * Not for public consumption.
-   */
-
-
-  EditorState.prototype.getImmutable = function getImmutable() {
-    return this._immutable;
-  };
-
-  return EditorState;
-}();
-
-/**
- * Set the supplied SelectionState as the new current selection, and set
- * the `force` flag to trigger manual selection placement by the view.
- */
-
-
-function updateSelection(editorState, selection, forceSelection) {
-  return EditorState.set(editorState, {
-    selection: selection,
-    forceSelection: forceSelection,
-    nativelyRenderedContent: null,
-    inlineStyleOverride: null
-  });
-}
-
-/**
- * Regenerate the entire tree map for a given ContentState and decorator.
- * Returns an OrderedMap that maps all available ContentBlock objects.
- */
-function generateNewTreeMap(contentState, decorator) {
-  return contentState.getBlockMap().map(function (block) {
-    return BlockTree.generate(contentState, block, decorator);
-  }).toOrderedMap();
-}
-
-/**
- * Regenerate tree map objects for all ContentBlocks that have changed
- * between the current editorState and newContent. Returns an OrderedMap
- * with only changed regenerated tree map objects.
- */
-function regenerateTreeForNewBlocks(editorState, newBlockMap, newEntityMap, decorator) {
-  var contentState = editorState.getCurrentContent().set('entityMap', newEntityMap);
-  var prevBlockMap = contentState.getBlockMap();
-  var prevTreeMap = editorState.getImmutable().get('treeMap');
-  return prevTreeMap.merge(newBlockMap.toSeq().filter(function (block, key) {
-    return block !== prevBlockMap.get(key);
-  }).map(function (block) {
-    return BlockTree.generate(contentState, block, decorator);
-  }));
-}
-
-/**
- * Generate tree map objects for a new decorator object, preserving any
- * decorations that are unchanged from the previous decorator.
- *
- * Note that in order for this to perform optimally, decoration Lists for
- * decorators should be preserved when possible to allow for direct immutable
- * List comparison.
- */
-function regenerateTreeForNewDecorator(content, blockMap, previousTreeMap, decorator, existingDecorator) {
-  return previousTreeMap.merge(blockMap.toSeq().filter(function (block) {
-    return decorator.getDecorations(block, content) !== existingDecorator.getDecorations(block, content);
-  }).map(function (block) {
-    return BlockTree.generate(content, block, decorator);
-  }));
-}
-
-/**
- * Return whether a change should be considered a boundary state, given
- * the previous change type. Allows us to discard potential boundary states
- * during standard typing or deletion behavior.
- */
-function mustBecomeBoundary(editorState, changeType) {
-  var lastChangeType = editorState.getLastChangeType();
-  return changeType !== lastChangeType || changeType !== 'insert-characters' && changeType !== 'backspace-character' && changeType !== 'delete-character';
-}
-
-function getInlineStyleForCollapsedSelection(content, selection) {
-  var startKey = selection.getStartKey();
-  var startOffset = selection.getStartOffset();
-  var startBlock = content.getBlockForKey(startKey);
-
-  // If the cursor is not at the start of the block, look backward to
-  // preserve the style of the preceding character.
-  if (startOffset > 0) {
-    return startBlock.getInlineStyleAt(startOffset - 1);
-  }
-
-  // The caret is at position zero in this block. If the block has any
-  // text at all, use the style of the first character.
-  if (startBlock.getLength()) {
-    return startBlock.getInlineStyleAt(0);
-  }
-
-  // Otherwise, look upward in the document to find the closest character.
-  return lookUpwardForInlineStyle(content, startKey);
-}
-
-function getInlineStyleForNonCollapsedSelection(content, selection) {
-  var startKey = selection.getStartKey();
-  var startOffset = selection.getStartOffset();
-  var startBlock = content.getBlockForKey(startKey);
-
-  // If there is a character just inside the selection, use its style.
-  if (startOffset < startBlock.getLength()) {
-    return startBlock.getInlineStyleAt(startOffset);
-  }
-
-  // Check if the selection at the end of a non-empty block. Use the last
-  // style in the block.
-  if (startOffset > 0) {
-    return startBlock.getInlineStyleAt(startOffset - 1);
-  }
-
-  // Otherwise, look upward in the document to find the closest character.
-  return lookUpwardForInlineStyle(content, startKey);
-}
-
-function lookUpwardForInlineStyle(content, fromKey) {
-  var lastNonEmpty = content.getBlockMap().reverse().skipUntil(function (_, k) {
-    return k === fromKey;
-  }).skip(1).skipUntil(function (block, _) {
-    return block.getLength();
-  }).first();
-
-  if (lastNonEmpty) return lastNonEmpty.getInlineStyleAt(lastNonEmpty.getLength() - 1);
-  return OrderedSet();
-}
-
-module.exports = EditorState;
-
-/***/ }),
 /* 4 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/*
-object-assign
-(c) Sindre Sorhus
-@license MIT
-*/
-
-
-/* eslint-disable no-unused-vars */
-var getOwnPropertySymbols = Object.getOwnPropertySymbols;
-var hasOwnProperty = Object.prototype.hasOwnProperty;
-var propIsEnumerable = Object.prototype.propertyIsEnumerable;
-
-function toObject(val) {
-	if (val === null || val === undefined) {
-		throw new TypeError('Object.assign cannot be called with null or undefined');
-	}
-
-	return Object(val);
-}
-
-function shouldUseNative() {
-	try {
-		if (!Object.assign) {
-			return false;
-		}
-
-		// Detect buggy property enumeration order in older V8 versions.
-
-		// https://bugs.chromium.org/p/v8/issues/detail?id=4118
-		var test1 = new String('abc');  // eslint-disable-line no-new-wrappers
-		test1[5] = 'de';
-		if (Object.getOwnPropertyNames(test1)[0] === '5') {
-			return false;
-		}
-
-		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
-		var test2 = {};
-		for (var i = 0; i < 10; i++) {
-			test2['_' + String.fromCharCode(i)] = i;
-		}
-		var order2 = Object.getOwnPropertyNames(test2).map(function (n) {
-			return test2[n];
-		});
-		if (order2.join('') !== '0123456789') {
-			return false;
-		}
-
-		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
-		var test3 = {};
-		'abcdefghijklmnopqrst'.split('').forEach(function (letter) {
-			test3[letter] = letter;
-		});
-		if (Object.keys(Object.assign({}, test3)).join('') !==
-				'abcdefghijklmnopqrst') {
-			return false;
-		}
-
-		return true;
-	} catch (err) {
-		// We don't expect any of the above to throw, but better to be safe.
-		return false;
-	}
-}
-
-module.exports = shouldUseNative() ? Object.assign : function (target, source) {
-	var from;
-	var to = toObject(target);
-	var symbols;
-
-	for (var s = 1; s < arguments.length; s++) {
-		from = Object(arguments[s]);
-
-		for (var key in from) {
-			if (hasOwnProperty.call(from, key)) {
-				to[key] = from[key];
-			}
-		}
-
-		if (getOwnPropertySymbols) {
-			symbols = getOwnPropertySymbols(from);
-			for (var i = 0; i < symbols.length; i++) {
-				if (propIsEnumerable.call(from, symbols[i])) {
-					to[symbols[i]] = from[symbols[i]];
-				}
-			}
-		}
-	}
-
-	return to;
-};
-
-
-/***/ }),
-/* 5 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -5979,27 +5881,27 @@ module.exports = shouldUseNative() ? Object.assign : function (target, source) {
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftModifier
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var CharacterMetadata = __webpack_require__(6);
-var ContentStateInlineStyle = __webpack_require__(90);
-var DraftFeatureFlags = __webpack_require__(14);
-var Immutable = __webpack_require__(2);
+var CharacterMetadata = __webpack_require__(9);
+var ContentStateInlineStyle = __webpack_require__(86);
+var DraftFeatureFlags = __webpack_require__(42);
+var Immutable = __webpack_require__(3);
 
-var applyEntityToContentState = __webpack_require__(91);
-var getCharacterRemovalRange = __webpack_require__(93);
-var getContentStateFragment = __webpack_require__(27);
-var insertFragmentIntoContentState = __webpack_require__(96);
-var insertTextIntoContentState = __webpack_require__(97);
+var applyEntityToContentState = __webpack_require__(88);
+var getCharacterRemovalRange = __webpack_require__(90);
+var getContentStateFragment = __webpack_require__(24);
+var insertFragmentIntoContentState = __webpack_require__(93);
+var insertTextIntoContentState = __webpack_require__(94);
 var invariant = __webpack_require__(1);
-var modifyBlockForContentState = __webpack_require__(98);
-var removeEntitiesAtEdges = __webpack_require__(45);
-var removeRangeFromContentState = __webpack_require__(99);
-var splitBlockInContentState = __webpack_require__(100);
+var modifyBlockForContentState = __webpack_require__(95);
+var removeEntitiesAtEdges = __webpack_require__(43);
+var removeRangeFromContentState = __webpack_require__(96);
+var splitBlockInContentState = __webpack_require__(97);
 
 var OrderedSet = Immutable.OrderedSet;
 
@@ -6133,7 +6035,186 @@ module.exports = DraftModifier;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
+/* 5 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/*
+object-assign
+(c) Sindre Sorhus
+@license MIT
+*/
+
+
+/* eslint-disable no-unused-vars */
+var getOwnPropertySymbols = Object.getOwnPropertySymbols;
+var hasOwnProperty = Object.prototype.hasOwnProperty;
+var propIsEnumerable = Object.prototype.propertyIsEnumerable;
+
+function toObject(val) {
+	if (val === null || val === undefined) {
+		throw new TypeError('Object.assign cannot be called with null or undefined');
+	}
+
+	return Object(val);
+}
+
+function shouldUseNative() {
+	try {
+		if (!Object.assign) {
+			return false;
+		}
+
+		// Detect buggy property enumeration order in older V8 versions.
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=4118
+		var test1 = new String('abc');  // eslint-disable-line no-new-wrappers
+		test1[5] = 'de';
+		if (Object.getOwnPropertyNames(test1)[0] === '5') {
+			return false;
+		}
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
+		var test2 = {};
+		for (var i = 0; i < 10; i++) {
+			test2['_' + String.fromCharCode(i)] = i;
+		}
+		var order2 = Object.getOwnPropertyNames(test2).map(function (n) {
+			return test2[n];
+		});
+		if (order2.join('') !== '0123456789') {
+			return false;
+		}
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
+		var test3 = {};
+		'abcdefghijklmnopqrst'.split('').forEach(function (letter) {
+			test3[letter] = letter;
+		});
+		if (Object.keys(Object.assign({}, test3)).join('') !==
+				'abcdefghijklmnopqrst') {
+			return false;
+		}
+
+		return true;
+	} catch (err) {
+		// We don't expect any of the above to throw, but better to be safe.
+		return false;
+	}
+}
+
+module.exports = shouldUseNative() ? Object.assign : function (target, source) {
+	var from;
+	var to = toObject(target);
+	var symbols;
+
+	for (var s = 1; s < arguments.length; s++) {
+		from = Object(arguments[s]);
+
+		for (var key in from) {
+			if (hasOwnProperty.call(from, key)) {
+				to[key] = from[key];
+			}
+		}
+
+		if (getOwnPropertySymbols) {
+			symbols = getOwnPropertySymbols(from);
+			for (var i = 0; i < symbols.length; i++) {
+				if (propIsEnumerable.call(from, symbols[i])) {
+					to[symbols[i]] = from[symbols[i]];
+				}
+			}
+		}
+	}
+
+	return to;
+};
+
+
+/***/ }),
 /* 6 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+var nullthrows = function nullthrows(x) {
+  if (x != null) {
+    return x;
+  }
+  throw new Error("Got unexpected null or undefined");
+};
+
+module.exports = nullthrows;
+
+/***/ }),
+/* 7 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/* WEBPACK VAR INJECTION */(function(process) {
+
+if (process.env.NODE_ENV === 'production') {
+  module.exports = __webpack_require__(73);
+} else {
+  module.exports = __webpack_require__(74);
+}
+
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
+
+/***/ }),
+/* 8 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * 
+ */
+
+function makeEmptyFunction(arg) {
+  return function () {
+    return arg;
+  };
+}
+
+/**
+ * This function accepts and discards inputs; it has no side effects. This is
+ * primarily useful idiomatically for overridable function endpoints which
+ * always need to be callable, since JS lacks a null-call idiom ala Cocoa.
+ */
+var emptyFunction = function emptyFunction() {};
+
+emptyFunction.thatReturns = makeEmptyFunction;
+emptyFunction.thatReturnsFalse = makeEmptyFunction(false);
+emptyFunction.thatReturnsTrue = makeEmptyFunction(true);
+emptyFunction.thatReturnsNull = makeEmptyFunction(null);
+emptyFunction.thatReturnsThis = function () {
+  return this;
+};
+emptyFunction.thatReturnsArgument = function (arg) {
+  return arg;
+};
+
+module.exports = emptyFunction;
+
+/***/ }),
+/* 9 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -6146,7 +6227,7 @@ module.exports = DraftModifier;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule CharacterMetadata
- * @format
+ * @typechecks
  * 
  */
 
@@ -6158,7 +6239,7 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var _require = __webpack_require__(2),
+var _require = __webpack_require__(3),
     Map = _require.Map,
     OrderedSet = _require.OrderedSet,
     Record = _require.Record;
@@ -6225,10 +6306,7 @@ var CharacterMetadata = function (_CharacterMetadataRec) {
       return EMPTY;
     }
 
-    var defaultConfig = {
-      style: EMPTY_SET,
-      entity: null
-    };
+    var defaultConfig = { style: EMPTY_SET, entity: null };
 
     // Fill in unspecified properties, if necessary.
     var configMap = Map(defaultConfig).merge(config);
@@ -6254,7 +6332,7 @@ CharacterMetadata.EMPTY = EMPTY;
 module.exports = CharacterMetadata;
 
 /***/ }),
-/* 7 */
+/* 10 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -6266,235 +6344,26 @@ module.exports = CharacterMetadata;
  * LICENSE file in the root directory of this source tree. An additional grant
  * of patent rights can be found in the PATENTS file in the same directory.
  *
- * @providesModule ContentBlockNode
- * @format
+ * @providesModule generateRandomKey
+ * @typechecks
  * 
- *
- * This file is a fork of ContentBlock adding support for nesting references by
- * providing links to children, parent, prevSibling, and nextSibling.
- *
- * This is unstable and not part of the public API and should not be used by
- * production systems. This file may be update/removed without notice.
  */
 
 
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+var seenKeys = {};
+var MULTIPLIER = Math.pow(2, 24);
 
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-var CharacterMetadata = __webpack_require__(6);
-var Immutable = __webpack_require__(2);
-
-var findRangesImmutable = __webpack_require__(20);
-
-var List = Immutable.List,
-    Map = Immutable.Map,
-    OrderedSet = Immutable.OrderedSet,
-    Record = Immutable.Record,
-    Repeat = Immutable.Repeat;
-
-
-var EMPTY_SET = OrderedSet();
-
-var defaultRecord = {
-  parent: null,
-  characterList: List(),
-  data: Map(),
-  depth: 0,
-  key: '',
-  text: '',
-  type: 'unstyled',
-  children: List(),
-  prevSibling: null,
-  nextSibling: null
-};
-
-var haveEqualStyle = function haveEqualStyle(charA, charB) {
-  return charA.getStyle() === charB.getStyle();
-};
-
-var haveEqualEntity = function haveEqualEntity(charA, charB) {
-  return charA.getEntity() === charB.getEntity();
-};
-
-var decorateCharacterList = function decorateCharacterList(config) {
-  if (!config) {
-    return config;
+function generateRandomKey() {
+  var key = void 0;
+  while (key === undefined || seenKeys.hasOwnProperty(key) || !isNaN(+key)) {
+    key = Math.floor(Math.random() * MULTIPLIER).toString(32);
   }
-
-  var characterList = config.characterList,
-      text = config.text;
-
-
-  if (text && !characterList) {
-    config.characterList = List(Repeat(CharacterMetadata.EMPTY, text.length));
-  }
-
-  return config;
-};
-
-var ContentBlockNode = function (_Record) {
-  _inherits(ContentBlockNode, _Record);
-
-  function ContentBlockNode() {
-    var props = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : defaultRecord;
-
-    _classCallCheck(this, ContentBlockNode);
-
-    return _possibleConstructorReturn(this, _Record.call(this, decorateCharacterList(props)));
-  }
-
-  ContentBlockNode.prototype.getKey = function getKey() {
-    return this.get('key');
-  };
-
-  ContentBlockNode.prototype.getType = function getType() {
-    return this.get('type');
-  };
-
-  ContentBlockNode.prototype.getText = function getText() {
-    return this.get('text');
-  };
-
-  ContentBlockNode.prototype.getCharacterList = function getCharacterList() {
-    return this.get('characterList');
-  };
-
-  ContentBlockNode.prototype.getLength = function getLength() {
-    return this.getText().length;
-  };
-
-  ContentBlockNode.prototype.getDepth = function getDepth() {
-    return this.get('depth');
-  };
-
-  ContentBlockNode.prototype.getData = function getData() {
-    return this.get('data');
-  };
-
-  ContentBlockNode.prototype.getInlineStyleAt = function getInlineStyleAt(offset) {
-    var character = this.getCharacterList().get(offset);
-    return character ? character.getStyle() : EMPTY_SET;
-  };
-
-  ContentBlockNode.prototype.getEntityAt = function getEntityAt(offset) {
-    var character = this.getCharacterList().get(offset);
-    return character ? character.getEntity() : null;
-  };
-
-  ContentBlockNode.prototype.getChildKeys = function getChildKeys() {
-    return this.get('children');
-  };
-
-  ContentBlockNode.prototype.getParentKey = function getParentKey() {
-    return this.get('parent');
-  };
-
-  ContentBlockNode.prototype.getPrevSiblingKey = function getPrevSiblingKey() {
-    return this.get('prevSibling');
-  };
-
-  ContentBlockNode.prototype.getNextSiblingKey = function getNextSiblingKey() {
-    return this.get('nextSibling');
-  };
-
-  ContentBlockNode.prototype.findStyleRanges = function findStyleRanges(filterFn, callback) {
-    findRangesImmutable(this.getCharacterList(), haveEqualStyle, filterFn, callback);
-  };
-
-  ContentBlockNode.prototype.findEntityRanges = function findEntityRanges(filterFn, callback) {
-    findRangesImmutable(this.getCharacterList(), haveEqualEntity, filterFn, callback);
-  };
-
-  return ContentBlockNode;
-}(Record(defaultRecord));
-
-module.exports = ContentBlockNode;
-
-/***/ }),
-/* 8 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/* WEBPACK VAR INJECTION */(function(process) {
-
-if (process.env.NODE_ENV === 'production') {
-  module.exports = __webpack_require__(76);
-} else {
-  module.exports = __webpack_require__(77);
+  seenKeys[key] = true;
+  return key;
 }
 
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
-
-/***/ }),
-/* 9 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * 
- */
-
-function makeEmptyFunction(arg) {
-  return function () {
-    return arg;
-  };
-}
-
-/**
- * This function accepts and discards inputs; it has no side effects. This is
- * primarily useful idiomatically for overridable function endpoints which
- * always need to be callable, since JS lacks a null-call idiom ala Cocoa.
- */
-var emptyFunction = function emptyFunction() {};
-
-emptyFunction.thatReturns = makeEmptyFunction;
-emptyFunction.thatReturnsFalse = makeEmptyFunction(false);
-emptyFunction.thatReturnsTrue = makeEmptyFunction(true);
-emptyFunction.thatReturnsNull = makeEmptyFunction(null);
-emptyFunction.thatReturnsThis = function () {
-  return this;
-};
-emptyFunction.thatReturnsArgument = function (arg) {
-  return arg;
-};
-
-module.exports = emptyFunction;
-
-/***/ }),
-/* 10 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- *
- * 
- */
-
-var nullthrows = function nullthrows(x) {
-  if (x != null) {
-    return x;
-  }
-  throw new Error("Got unexpected null or undefined");
-};
-
-module.exports = nullthrows;
+module.exports = generateRandomKey;
 
 /***/ }),
 /* 11 */
@@ -6511,11 +6380,11 @@ module.exports = nullthrows;
 
 
 
-var UserAgentData = __webpack_require__(117);
-var VersionRange = __webpack_require__(120);
+var UserAgentData = __webpack_require__(113);
+var VersionRange = __webpack_require__(116);
 
-var mapObject = __webpack_require__(121);
-var memoizeStringOnly = __webpack_require__(122);
+var mapObject = __webpack_require__(117);
+var memoizeStringOnly = __webpack_require__(118);
 
 /**
  * Checks to see whether `name` and `version` satisfy `query`.
@@ -6743,40 +6612,6 @@ module.exports = mapObject(UserAgent, memoizeStringOnly);
 
 /***/ }),
 /* 12 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule generateRandomKey
- * @format
- * 
- */
-
-
-
-var seenKeys = {};
-var MULTIPLIER = Math.pow(2, 24);
-
-function generateRandomKey() {
-  var key = void 0;
-  while (key === undefined || seenKeys.hasOwnProperty(key) || !isNaN(+key)) {
-    key = Math.floor(Math.random() * MULTIPLIER).toString(32);
-  }
-  seenKeys[key] = true;
-  return key;
-}
-
-module.exports = generateRandomKey;
-
-/***/ }),
-/* 13 */
 /***/ (function(module, exports) {
 
 var g;
@@ -6803,31 +6638,7 @@ module.exports = g;
 
 
 /***/ }),
-/* 14 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule DraftFeatureFlags
- * @format
- * 
- */
-
-
-
-var DraftFeatureFlags = __webpack_require__(89);
-
-module.exports = DraftFeatureFlags;
-
-/***/ }),
-/* 15 */
+/* 13 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -6840,7 +6651,6 @@ module.exports = DraftFeatureFlags;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule ContentBlock
- * @format
  * 
  */
 
@@ -6852,16 +6662,14 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var CharacterMetadata = __webpack_require__(6);
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var findRangesImmutable = __webpack_require__(20);
+var findRangesImmutable = __webpack_require__(23);
 
 var List = Immutable.List,
     Map = Immutable.Map,
     OrderedSet = Immutable.OrderedSet,
-    Record = Immutable.Record,
-    Repeat = Immutable.Repeat;
+    Record = Immutable.Record;
 
 
 var EMPTY_SET = OrderedSet();
@@ -6877,29 +6685,13 @@ var defaultRecord = {
 
 var ContentBlockRecord = Record(defaultRecord);
 
-var decorateCharacterList = function decorateCharacterList(config) {
-  if (!config) {
-    return config;
-  }
-
-  var characterList = config.characterList,
-      text = config.text;
-
-
-  if (text && !characterList) {
-    config.characterList = List(Repeat(CharacterMetadata.EMPTY, text.length));
-  }
-
-  return config;
-};
-
 var ContentBlock = function (_ContentBlockRecord) {
   _inherits(ContentBlock, _ContentBlockRecord);
 
-  function ContentBlock(config) {
+  function ContentBlock() {
     _classCallCheck(this, ContentBlock);
 
-    return _possibleConstructorReturn(this, _ContentBlockRecord.call(this, decorateCharacterList(config)));
+    return _possibleConstructorReturn(this, _ContentBlockRecord.apply(this, arguments));
   }
 
   ContentBlock.prototype.getKey = function getKey() {
@@ -6972,7 +6764,7 @@ function haveEqualEntity(charA, charB) {
 module.exports = ContentBlock;
 
 /***/ }),
-/* 16 */
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7191,7 +6983,41 @@ module.exports = UnicodeUtils;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 17 */
+/* 15 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * @providesModule BlockMapBuilder
+ * 
+ */
+
+
+
+var Immutable = __webpack_require__(3);
+
+var OrderedMap = Immutable.OrderedMap;
+
+
+var BlockMapBuilder = {
+  createFromArray: function createFromArray(blocks) {
+    return OrderedMap(blocks.map(function (block) {
+      return [block.getKey(), block];
+    }));
+  }
+};
+
+module.exports = BlockMapBuilder;
+
+/***/ }),
+/* 16 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7204,7 +7030,7 @@ module.exports = UnicodeUtils;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule SelectionState
- * @format
+ * @typechecks
  * 
  */
 
@@ -7216,7 +7042,7 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
 var Record = Immutable.Record;
 
@@ -7331,7 +7157,7 @@ var SelectionState = function (_SelectionStateRecord) {
 module.exports = SelectionState;
 
 /***/ }),
-/* 18 */
+/* 17 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7376,121 +7202,7 @@ function replace(str) {
 module.exports = cx;
 
 /***/ }),
-/* 19 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule BlockMapBuilder
- * @format
- * 
- */
-
-
-
-var Immutable = __webpack_require__(2);
-
-var OrderedMap = Immutable.OrderedMap;
-
-
-var BlockMapBuilder = {
-  createFromArray: function createFromArray(blocks) {
-    return OrderedMap(blocks.map(function (block) {
-      return [block.getKey(), block];
-    }));
-  }
-};
-
-module.exports = BlockMapBuilder;
-
-/***/ }),
-/* 20 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule findRangesImmutable
- * @format
- * 
- */
-
-
-
-/**
- * Search through an array to find contiguous stretches of elements that
- * match a specified filter function.
- *
- * When ranges are found, execute a specified `found` function to supply
- * the values to the caller.
- */
-function findRangesImmutable(haystack, areEqualFn, filterFn, foundFn) {
-  if (!haystack.size) {
-    return;
-  }
-
-  var cursor = 0;
-
-  haystack.reduce(function (value, nextValue, nextIndex) {
-    if (!areEqualFn(value, nextValue)) {
-      if (filterFn(value)) {
-        foundFn(cursor, nextIndex);
-      }
-      cursor = nextIndex;
-    }
-    return nextValue;
-  });
-
-  filterFn(haystack.last()) && foundFn(cursor, haystack.count());
-}
-
-module.exports = findRangesImmutable;
-
-/***/ }),
-/* 21 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule isEventHandled
- * @format
- * 
- */
-
-
-
-/**
- * Utility method for determining whether or not the value returned
- * from a handler indicates that it was handled.
- */
-function isEventHandled(value) {
-  return value === 'handled' || value === true;
-}
-
-module.exports = isEventHandled;
-
-/***/ }),
-/* 22 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7528,15 +7240,15 @@ if (process.env.NODE_ENV === 'production') {
   // DCE check should happen before ReactDOM bundle executes so that
   // DevTools can report bad minification during injection.
   checkDCE();
-  module.exports = __webpack_require__(111);
+  module.exports = __webpack_require__(107);
 } else {
-  module.exports = __webpack_require__(114);
+  module.exports = __webpack_require__(110);
 }
 
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 23 */
+/* 19 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7551,7 +7263,7 @@ if (process.env.NODE_ENV === 'production') {
  * 
  */
 
-var isTextNode = __webpack_require__(112);
+var isTextNode = __webpack_require__(108);
 
 /*eslint-disable no-bitwise */
 
@@ -7579,7 +7291,7 @@ function containsNode(outerNode, innerNode) {
 module.exports = containsNode;
 
 /***/ }),
-/* 24 */
+/* 20 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7592,13 +7304,12 @@ module.exports = containsNode;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule removeTextWithStrategy
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
+var DraftModifier = __webpack_require__(4);
 
 /**
  * For a collapsed selection state, remove text based on the specified strategy.
@@ -7628,7 +7339,7 @@ function removeTextWithStrategy(editorState, strategy, direction) {
 module.exports = removeTextWithStrategy;
 
 /***/ }),
-/* 25 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7652,7 +7363,7 @@ module.exports = emptyObject;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 26 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7666,7 +7377,7 @@ module.exports = emptyObject;
 
 
 
-var emptyFunction = __webpack_require__(9);
+var emptyFunction = __webpack_require__(8);
 
 /**
  * Similar to invariant but only logs a warning if the condition is not met.
@@ -7721,7 +7432,55 @@ module.exports = warning;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 27 */
+/* 23 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * @providesModule findRangesImmutable
+ * 
+ */
+
+
+
+/**
+ * Search through an array to find contiguous stretches of elements that
+ * match a specified filter function.
+ *
+ * When ranges are found, execute a specified `found` function to supply
+ * the values to the caller.
+ */
+function findRangesImmutable(haystack, areEqualFn, filterFn, foundFn) {
+  if (!haystack.size) {
+    return;
+  }
+
+  var cursor = 0;
+
+  haystack.reduce(function (value, nextValue, nextIndex) {
+    if (!areEqualFn(value, nextValue)) {
+      if (filterFn(value)) {
+        foundFn(cursor, nextIndex);
+      }
+      cursor = nextIndex;
+    }
+    return nextValue;
+  });
+
+  filterFn(haystack.last()) && foundFn(cursor, haystack.count());
+}
+
+module.exports = findRangesImmutable;
+
+/***/ }),
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7734,16 +7493,16 @@ module.exports = warning;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getContentStateFragment
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var randomizeBlockMapKeys = __webpack_require__(44);
-var removeEntitiesAtEdges = __webpack_require__(45);
+var generateRandomKey = __webpack_require__(10);
+var removeEntitiesAtEdges = __webpack_require__(43);
 
-var getContentStateFragment = function getContentStateFragment(contentState, selectionState) {
+function getContentStateFragment(contentState, selectionState) {
   var startKey = selectionState.getStartKey();
   var startOffset = selectionState.getStartOffset();
   var endKey = selectionState.getEndKey();
@@ -7759,12 +7518,15 @@ var getContentStateFragment = function getContentStateFragment(contentState, sel
   var startIndex = blockKeys.indexOf(startKey);
   var endIndex = blockKeys.indexOf(endKey) + 1;
 
-  return randomizeBlockMapKeys(blockMap.slice(startIndex, endIndex).map(function (block, blockKey) {
+  var slice = blockMap.slice(startIndex, endIndex).map(function (block, blockKey) {
+    var newKey = generateRandomKey();
+
     var text = block.getText();
     var chars = block.getCharacterList();
 
     if (startKey === endKey) {
       return block.merge({
+        key: newKey,
         text: text.slice(startOffset, endOffset),
         characterList: chars.slice(startOffset, endOffset)
       });
@@ -7772,6 +7534,7 @@ var getContentStateFragment = function getContentStateFragment(contentState, sel
 
     if (blockKey === startKey) {
       return block.merge({
+        key: newKey,
         text: text.slice(startOffset),
         characterList: chars.slice(startOffset)
       });
@@ -7779,25 +7542,28 @@ var getContentStateFragment = function getContentStateFragment(contentState, sel
 
     if (blockKey === endKey) {
       return block.merge({
+        key: newKey,
         text: text.slice(0, endOffset),
         characterList: chars.slice(0, endOffset)
       });
     }
 
-    return block;
-  }));
-};
+    return block.set('key', newKey);
+  });
+
+  return slice.toOrderedMap();
+}
 
 module.exports = getContentStateFragment;
 
 /***/ }),
-/* 28 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 /* WEBPACK VAR INJECTION */(function(process) {
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
@@ -7810,12 +7576,12 @@ var _extends = _assign || function (target) { for (var i = 1; i < arguments.leng
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEntity
- * @format
+ * @typechecks
  * 
  */
 
-var DraftEntityInstance = __webpack_require__(49);
-var Immutable = __webpack_require__(2);
+var DraftEntityInstance = __webpack_require__(46);
+var Immutable = __webpack_require__(3);
 
 var invariant = __webpack_require__(1);
 
@@ -7992,7 +7758,7 @@ module.exports = DraftEntity;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 29 */
+/* 26 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8034,7 +7800,7 @@ function getActiveElement(doc) /*?DOMElement*/{
 module.exports = getActiveElement;
 
 /***/ }),
-/* 30 */
+/* 27 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8047,7 +7813,6 @@ module.exports = getActiveElement;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftOffsetKey
- * @format
  * 
  */
 
@@ -8077,7 +7842,37 @@ var DraftOffsetKey = {
 module.exports = DraftOffsetKey;
 
 /***/ }),
-/* 31 */
+/* 28 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/**
+ * Copyright (c) 2013-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * @providesModule isEventHandled
+ * @typechecks
+ * 
+ */
+
+
+
+/**
+ * Utility method for determining whether or not the value returned
+ * from a handler indicates that it was handled.
+ */
+function isEventHandled(value) {
+  return value === 'handled' || value === true;
+}
+
+module.exports = isEventHandled;
+
+/***/ }),
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8092,8 +7887,8 @@ module.exports = DraftOffsetKey;
 
 if (process.env.NODE_ENV !== 'production') {
   var invariant = __webpack_require__(1);
-  var warning = __webpack_require__(26);
-  var ReactPropTypesSecret = __webpack_require__(32);
+  var warning = __webpack_require__(22);
+  var ReactPropTypesSecret = __webpack_require__(30);
   var loggedTypeFailures = {};
 }
 
@@ -8144,7 +7939,7 @@ module.exports = checkPropTypes;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 32 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8163,7 +7958,7 @@ module.exports = ReactPropTypesSecret;
 
 
 /***/ }),
-/* 33 */
+/* 31 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8176,7 +7971,7 @@ module.exports = ReactPropTypesSecret;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule ContentState
- * @format
+ * @typechecks
  * 
  */
 
@@ -8188,24 +7983,20 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var BlockMapBuilder = __webpack_require__(19);
-var CharacterMetadata = __webpack_require__(6);
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var DraftEntity = __webpack_require__(28);
-var DraftFeatureFlags = __webpack_require__(14);
-var Immutable = __webpack_require__(2);
-var SelectionState = __webpack_require__(17);
+var BlockMapBuilder = __webpack_require__(15);
+var CharacterMetadata = __webpack_require__(9);
+var ContentBlock = __webpack_require__(13);
+var DraftEntity = __webpack_require__(25);
+var Immutable = __webpack_require__(3);
+var SelectionState = __webpack_require__(16);
 
-var generateRandomKey = __webpack_require__(12);
-var sanitizeDraftText = __webpack_require__(34);
+var generateRandomKey = __webpack_require__(10);
+var sanitizeDraftText = __webpack_require__(32);
 
 var List = Immutable.List,
     Record = Immutable.Record,
     Repeat = Immutable.Repeat;
 
-
-var experimentalTreeDataSupport = DraftFeatureFlags.draft_tree_data_support;
 
 var defaultRecord = {
   entityMap: null,
@@ -8213,8 +8004,6 @@ var defaultRecord = {
   selectionBefore: null,
   selectionAfter: null
 };
-
-var ContentBlockNodeRecord = experimentalTreeDataSupport ? ContentBlockNode : ContentBlock;
 
 var ContentStateRecord = Record(defaultRecord);
 
@@ -8351,7 +8140,7 @@ var ContentState = function (_ContentStateRecord) {
     var strings = text.split(delimiter);
     var blocks = strings.map(function (block) {
       block = sanitizeDraftText(block);
-      return new ContentBlockNodeRecord({
+      return new ContentBlock({
         key: generateRandomKey(),
         text: block,
         type: 'unstyled',
@@ -8367,7 +8156,7 @@ var ContentState = function (_ContentStateRecord) {
 module.exports = ContentState;
 
 /***/ }),
-/* 34 */
+/* 32 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8380,7 +8169,6 @@ module.exports = ContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule sanitizeDraftText
- * @format
  * 
  */
 
@@ -8395,7 +8183,7 @@ function sanitizeDraftText(input) {
 module.exports = sanitizeDraftText;
 
 /***/ }),
-/* 35 */
+/* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8508,7 +8296,7 @@ module.exports = UnicodeBidiDirection;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 36 */
+/* 34 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8521,18 +8309,17 @@ module.exports = UnicodeBidiDirection;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DefaultDraftBlockRenderMap
- * @format
  * 
  */
 
 
 
-var _require = __webpack_require__(2),
+var _require = __webpack_require__(3),
     Map = _require.Map;
 
-var React = __webpack_require__(8);
+var React = __webpack_require__(7);
 
-var cx = __webpack_require__(18);
+var cx = __webpack_require__(17);
 
 var UL_WRAP = React.createElement('ul', { className: cx('public/DraftStyleDefault/ul') });
 var OL_WRAP = React.createElement('ol', { className: cx('public/DraftStyleDefault/ol') });
@@ -8565,17 +8352,17 @@ var DefaultDraftBlockRenderMap = Map({
     element: 'li',
     wrapper: OL_WRAP
   },
-  blockquote: {
+  'blockquote': {
     element: 'blockquote'
   },
-  atomic: {
+  'atomic': {
     element: 'figure'
   },
   'code-block': {
     element: 'pre',
     wrapper: PRE_WRAP
   },
-  unstyled: {
+  'unstyled': {
     element: 'div',
     aliasedElements: ['p']
   }
@@ -8584,7 +8371,7 @@ var DefaultDraftBlockRenderMap = Map({
 module.exports = DefaultDraftBlockRenderMap;
 
 /***/ }),
-/* 37 */
+/* 35 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8624,7 +8411,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 38 */
+/* 36 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8637,7 +8424,7 @@ module.exports = {
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getEntityKeyForSelection
- * @format
+ * @typechecks
  * 
  */
 
@@ -8656,9 +8443,6 @@ function getEntityKeyForSelection(contentState, targetSelection) {
     var offset = targetSelection.getAnchorOffset();
     if (offset > 0) {
       entityKey = contentState.getBlockForKey(key).getEntityAt(offset - 1);
-      if (entityKey !== contentState.getBlockForKey(key).getEntityAt(offset)) {
-        return null;
-      }
       return filterKey(contentState.getEntityMap(), entityKey);
     }
     return null;
@@ -8688,7 +8472,7 @@ function filterKey(entityMap, entityKey) {
 module.exports = getEntityKeyForSelection;
 
 /***/ }),
-/* 39 */
+/* 37 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8703,7 +8487,7 @@ module.exports = getEntityKeyForSelection;
  * @typechecks
  */
 
-var getStyleProperty = __webpack_require__(125);
+var getStyleProperty = __webpack_require__(121);
 
 /**
  * @param {DOMNode} element [description]
@@ -8756,7 +8540,7 @@ var Style = {
 module.exports = Style;
 
 /***/ }),
-/* 40 */
+/* 38 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8771,8 +8555,8 @@ module.exports = Style;
 
 
 
-var getDocumentScrollElement = __webpack_require__(128);
-var getUnboundedScrollPosition = __webpack_require__(129);
+var getDocumentScrollElement = __webpack_require__(124);
+var getUnboundedScrollPosition = __webpack_require__(125);
 
 /**
  * Gets the scroll position of the supplied element or window.
@@ -8807,7 +8591,7 @@ function getScrollPosition(scrollable) {
 module.exports = getScrollPosition;
 
 /***/ }),
-/* 41 */
+/* 39 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8820,13 +8604,13 @@ module.exports = getScrollPosition;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule findAncestorOffsetKey
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var getSelectionOffsetKeyForNode = __webpack_require__(62);
+var getSelectionOffsetKeyForNode = __webpack_require__(59);
 
 /**
  * Get the key from the node's nearest offset-aware ancestor.
@@ -8846,7 +8630,7 @@ function findAncestorOffsetKey(node) {
 module.exports = findAncestorOffsetKey;
 
 /***/ }),
-/* 42 */
+/* 40 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8859,7 +8643,7 @@ module.exports = findAncestorOffsetKey;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule KeyBindingUtil
- * @format
+ * @typechecks
  * 
  */
 
@@ -8891,7 +8675,7 @@ var KeyBindingUtil = {
 module.exports = KeyBindingUtil;
 
 /***/ }),
-/* 43 */
+/* 41 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8904,7 +8688,6 @@ module.exports = KeyBindingUtil;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule moveSelectionBackward
- * @format
  * 
  */
 
@@ -8950,126 +8733,30 @@ function moveSelectionBackward(editorState, maxDistance) {
 module.exports = moveSelectionBackward;
 
 /***/ }),
-/* 44 */
+/* 42 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright 2013-present, Facebook, Inc.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree. An additional grant
  * of patent rights can be found in the PATENTS file in the same directory.
  *
- * @providesModule randomizeBlockMapKeys
- * @format
+ * @providesModule DraftFeatureFlags
  * 
  */
 
 
 
-var ContentBlockNode = __webpack_require__(7);
-var Immutable = __webpack_require__(2);
+var DraftFeatureFlags = __webpack_require__(87);
 
-var generateRandomKey = __webpack_require__(12);
-
-var OrderedMap = Immutable.OrderedMap;
-
-
-var randomizeContentBlockNodeKeys = function randomizeContentBlockNodeKeys(blockMap) {
-  var newKeysRef = {};
-
-  // we keep track of root blocks in order to update subsequent sibling links
-  var lastRootBlock = void 0;
-
-  return OrderedMap(blockMap.withMutations(function (blockMapState) {
-    blockMapState.forEach(function (block, index) {
-      var oldKey = block.getKey();
-      var nextKey = block.getNextSiblingKey();
-      var prevKey = block.getPrevSiblingKey();
-      var childrenKeys = block.getChildKeys();
-      var parentKey = block.getParentKey();
-
-      // new key that we will use to build linking
-      var key = generateRandomKey();
-
-      // we will add it here to re-use it later
-      newKeysRef[oldKey] = key;
-
-      if (nextKey) {
-        var nextBlock = blockMapState.get(nextKey);
-        if (nextBlock) {
-          blockMapState.setIn([nextKey, 'prevSibling'], key);
-        } else {
-          // this can happen when generating random keys for fragments
-          blockMapState.setIn([oldKey, 'nextSibling'], null);
-        }
-      }
-
-      if (prevKey) {
-        var prevBlock = blockMapState.get(prevKey);
-        if (prevBlock) {
-          blockMapState.setIn([prevKey, 'nextSibling'], key);
-        } else {
-          // this can happen when generating random keys for fragments
-          blockMapState.setIn([oldKey, 'prevSibling'], null);
-        }
-      }
-
-      if (parentKey && blockMapState.get(parentKey)) {
-        var parentBlock = blockMapState.get(parentKey);
-        var parentChildrenList = parentBlock.getChildKeys();
-        blockMapState.setIn([parentKey, 'children'], parentChildrenList.set(parentChildrenList.indexOf(block.getKey()), key));
-      } else {
-        // blocks will then be treated as root block nodes
-        blockMapState.setIn([oldKey, 'parent'], null);
-
-        if (lastRootBlock) {
-          blockMapState.setIn([lastRootBlock.getKey(), 'nextSibling'], key);
-          blockMapState.setIn([oldKey, 'prevSibling'], newKeysRef[lastRootBlock.getKey()]);
-        }
-
-        lastRootBlock = blockMapState.get(oldKey);
-      }
-
-      childrenKeys.forEach(function (childKey) {
-        var childBlock = blockMapState.get(childKey);
-        if (childBlock) {
-          blockMapState.setIn([childKey, 'parent'], key);
-        } else {
-          blockMapState.setIn([oldKey, 'children'], block.getChildKeys().filter(function (child) {
-            return child !== childKey;
-          }));
-        }
-      });
-    });
-  }).toArray().map(function (block) {
-    return [newKeysRef[block.getKey()], block.set('key', newKeysRef[block.getKey()])];
-  }));
-};
-
-var randomizeContentBlockKeys = function randomizeContentBlockKeys(blockMap) {
-  return OrderedMap(blockMap.toArray().map(function (block) {
-    var key = generateRandomKey();
-    return [key, block.set('key', key)];
-  }));
-};
-
-var randomizeBlockMapKeys = function randomizeBlockMapKeys(blockMap) {
-  var isTreeBasedBlockMap = blockMap.first() instanceof ContentBlockNode;
-
-  if (!isTreeBasedBlockMap) {
-    return randomizeContentBlockKeys(blockMap);
-  }
-
-  return randomizeContentBlockNodeKeys(blockMap);
-};
-
-module.exports = randomizeBlockMapKeys;
+module.exports = DraftFeatureFlags;
 
 /***/ }),
-/* 45 */
+/* 43 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9082,15 +8769,14 @@ module.exports = randomizeBlockMapKeys;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule removeEntitiesAtEdges
- * @format
  * 
  */
 
 
 
-var CharacterMetadata = __webpack_require__(6);
+var CharacterMetadata = __webpack_require__(9);
 
-var findRangesImmutable = __webpack_require__(20);
+var findRangesImmutable = __webpack_require__(23);
 var invariant = __webpack_require__(1);
 
 function removeEntitiesAtEdges(contentState, selectionState) {
@@ -9177,7 +8863,7 @@ module.exports = removeEntitiesAtEdges;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 46 */
+/* 44 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9190,7 +8876,6 @@ module.exports = removeEntitiesAtEdges;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule insertIntoList
- * @format
  * 
  */
 
@@ -9219,66 +8904,7 @@ function insertIntoList(targetList, toInsert, offset) {
 module.exports = insertIntoList;
 
 /***/ }),
-/* 47 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule getNextDelimiterBlockKey
- * @format
- * 
- *
- * This is unstable and not part of the public API and should not be used by
- * production systems. This file may be update/removed without notice.
- */
-
-var ContentBlockNode = __webpack_require__(7);
-
-var getNextDelimiterBlockKey = function getNextDelimiterBlockKey(block, blockMap) {
-  var isExperimentalTreeBlock = block instanceof ContentBlockNode;
-
-  if (!isExperimentalTreeBlock) {
-    return null;
-  }
-
-  var nextSiblingKey = block.getNextSiblingKey();
-
-  if (nextSiblingKey) {
-    return nextSiblingKey;
-  }
-
-  var parent = block.getParentKey();
-
-  if (!parent) {
-    return null;
-  }
-
-  var nextNonDescendantBlock = blockMap.get(parent);
-  while (nextNonDescendantBlock && !nextNonDescendantBlock.getNextSiblingKey()) {
-    var parentKey = nextNonDescendantBlock.getParentKey();
-    nextNonDescendantBlock = parentKey ? blockMap.get(parentKey) : null;
-  }
-
-  if (!nextNonDescendantBlock) {
-    return null;
-  }
-
-  return nextNonDescendantBlock.getNextSiblingKey();
-};
-
-module.exports = getNextDelimiterBlockKey;
-
-/***/ }),
-/* 48 */
+/* 45 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9291,16 +8917,15 @@ module.exports = getNextDelimiterBlockKey;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule BlockTree
- * @format
  * 
  */
 
 
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var emptyFunction = __webpack_require__(9);
-var findRangesImmutable = __webpack_require__(20);
+var emptyFunction = __webpack_require__(8);
+var findRangesImmutable = __webpack_require__(23);
 
 var List = Immutable.List,
     Repeat = Immutable.Repeat,
@@ -9397,7 +9022,7 @@ function areEqual(a, b) {
 module.exports = BlockTree;
 
 /***/ }),
-/* 49 */
+/* 46 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9410,8 +9035,6 @@ module.exports = BlockTree;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEntityInstance
- * @legacyServerCallableInstance
- * @format
  * 
  */
 
@@ -9423,7 +9046,7 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
 var Record = Immutable.Record;
 
@@ -9473,7 +9096,7 @@ var DraftEntityInstance = function (_DraftEntityInstanceR) {
 module.exports = DraftEntityInstance;
 
 /***/ }),
-/* 50 */
+/* 47 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9497,7 +9120,7 @@ module.exports = DraftEntityInstance;
 
 
 
-var UnicodeBidiDirection = __webpack_require__(35);
+var UnicodeBidiDirection = __webpack_require__(33);
 
 var invariant = __webpack_require__(1);
 
@@ -9634,7 +9257,7 @@ module.exports = UnicodeBidi;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 51 */
+/* 48 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9647,7 +9270,6 @@ module.exports = UnicodeBidi;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DefaultDraftInlineStyle
- * @format
  * 
  */
 
@@ -9677,7 +9299,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 52 */
+/* 49 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9690,7 +9312,7 @@ module.exports = {
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule isSelectionAtLeafStart
- * @format
+ * @typechecks
  * 
  */
 
@@ -9731,7 +9353,7 @@ function isSelectionAtLeafStart(editorState) {
 module.exports = isSelectionAtLeafStart;
 
 /***/ }),
-/* 53 */
+/* 50 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9744,13 +9366,13 @@ module.exports = isSelectionAtLeafStart;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorBlock.react
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
@@ -9760,30 +9382,23 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var DraftEditorLeaf = __webpack_require__(109);
-var DraftOffsetKey = __webpack_require__(30);
-var React = __webpack_require__(8);
-var ReactDOM = __webpack_require__(22);
-var Scroll = __webpack_require__(60);
-var Style = __webpack_require__(39);
-var UnicodeBidi = __webpack_require__(50);
-var UnicodeBidiDirection = __webpack_require__(35);
+var DraftEditorLeaf = __webpack_require__(105);
+var DraftOffsetKey = __webpack_require__(27);
+var React = __webpack_require__(7);
+var ReactDOM = __webpack_require__(18);
+var Scroll = __webpack_require__(57);
+var Style = __webpack_require__(37);
+var UnicodeBidi = __webpack_require__(47);
+var UnicodeBidiDirection = __webpack_require__(33);
 
-var cx = __webpack_require__(18);
-var getElementPosition = __webpack_require__(126);
-var getScrollPosition = __webpack_require__(40);
-var getViewportDimensions = __webpack_require__(130);
+var cx = __webpack_require__(17);
+var getElementPosition = __webpack_require__(122);
+var getScrollPosition = __webpack_require__(38);
+var getViewportDimensions = __webpack_require__(126);
 var invariant = __webpack_require__(1);
-var nullthrows = __webpack_require__(10);
+var nullthrows = __webpack_require__(6);
 
 var SCROLL_BUFFER = 10;
-
-/**
- * Return whether a block overlaps with either edge of the `SelectionState`.
- */
-var isBlockOnSelectionEdge = function isBlockOnSelectionEdge(selection, key) {
-  return selection.getAnchorKey() === key || selection.getFocusKey() === key;
-};
 
 /**
  * The default block renderer for a `DraftEditor` component.
@@ -9791,7 +9406,6 @@ var isBlockOnSelectionEdge = function isBlockOnSelectionEdge(selection, key) {
  * A `DraftEditorBlock` is able to render a given `ContentBlock` to its
  * appropriate decorator and inline style components.
  */
-
 var DraftEditorBlock = function (_React$Component) {
   _inherits(DraftEditorBlock, _React$Component);
 
@@ -9829,7 +9443,7 @@ var DraftEditorBlock = function (_React$Component) {
     var blockNode = ReactDOM.findDOMNode(this);
     var scrollParent = Style.getScrollParent(blockNode);
     var scrollPosition = getScrollPosition(scrollParent);
-    var scrollDelta = void 0;
+    var scrollDelta;
 
     if (scrollParent === window) {
       var nodePosition = getElementPosition(blockNode);
@@ -9866,19 +9480,25 @@ var DraftEditorBlock = function (_React$Component) {
         var offsetKey = DraftOffsetKey.encode(blockKey, ii, jj);
         var start = leaf.get('start');
         var end = leaf.get('end');
-        return React.createElement(DraftEditorLeaf, {
-          key: offsetKey,
-          offsetKey: offsetKey,
-          block: block,
-          start: start,
-          selection: hasSelection ? _this2.props.selection : null,
-          forceSelection: _this2.props.forceSelection,
-          text: text.slice(start, end),
-          styleSet: block.getInlineStyleAt(start),
-          customStyleMap: _this2.props.customStyleMap,
-          customStyleFn: _this2.props.customStyleFn,
-          isLast: ii === lastLeafSet && jj === lastLeaf
-        });
+        return (
+          /* $FlowFixMe(>=0.53.0 site=www,mobile) This comment suppresses an
+           * error when upgrading Flow's support for React. Common errors found
+           * when upgrading Flow's React support are documented at
+           * https://fburl.com/eq7bs81w */
+          React.createElement(DraftEditorLeaf, {
+            key: offsetKey,
+            offsetKey: offsetKey,
+            block: block,
+            start: start,
+            selection: hasSelection ? _this2.props.selection : undefined,
+            forceSelection: _this2.props.forceSelection,
+            text: text.slice(start, end),
+            styleSet: block.getInlineStyleAt(start),
+            customStyleMap: _this2.props.customStyleMap,
+            customStyleFn: _this2.props.customStyleFn,
+            isLast: ii === lastLeafSet && jj === lastLeaf
+          })
+        );
       }).toArray();
 
       var decoratorKey = leafSet.get('decoratorKey');
@@ -9920,6 +9540,10 @@ var DraftEditorBlock = function (_React$Component) {
   };
 
   DraftEditorBlock.prototype.render = function render() {
+    /* $FlowFixMe(>=0.53.0 site=www,mobile) This comment suppresses an error
+     * when upgrading Flow's support for React. Common errors found when
+     * upgrading Flow's React support are documented at
+     * https://fburl.com/eq7bs81w */
     var _props = this.props,
         direction = _props.direction,
         offsetKey = _props.offsetKey;
@@ -9940,11 +9564,20 @@ var DraftEditorBlock = function (_React$Component) {
   return DraftEditorBlock;
 }(React.Component);
 
+/**
+ * Return whether a block overlaps with either edge of the `SelectionState`.
+ */
+
+
+function isBlockOnSelectionEdge(selection, key) {
+  return selection.getAnchorKey() === key || selection.getFocusKey() === key;
+}
+
 module.exports = DraftEditorBlock;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 54 */
+/* 51 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9983,7 +9616,7 @@ var ExecutionEnvironment = {
 module.exports = ExecutionEnvironment;
 
 /***/ }),
-/* 55 */
+/* 52 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -9998,7 +9631,7 @@ module.exports = ExecutionEnvironment;
  * @typechecks
  */
 
-var emptyFunction = __webpack_require__(9);
+var emptyFunction = __webpack_require__(8);
 
 /**
  * Upstream version of event listener. Does not take into account specific
@@ -10064,7 +9697,7 @@ module.exports = EventListener;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 56 */
+/* 53 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10135,7 +9768,7 @@ function shallowEqual(objA, objB) {
 module.exports = shallowEqual;
 
 /***/ }),
-/* 57 */
+/* 54 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10165,7 +9798,7 @@ function focusNode(node) {
 module.exports = focusNode;
 
 /***/ }),
-/* 58 */
+/* 55 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10201,7 +9834,7 @@ function hyphenate(string) {
 module.exports = hyphenate;
 
 /***/ }),
-/* 59 */
+/* 56 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10236,7 +9869,7 @@ function camelize(string) {
 module.exports = camelize;
 
 /***/ }),
-/* 60 */
+/* 57 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10325,7 +9958,7 @@ var Scroll = {
 module.exports = Scroll;
 
 /***/ }),
-/* 61 */
+/* 58 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10342,10 +9975,10 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
  * @typechecks
  */
 
-var PhotosMimeType = __webpack_require__(133);
+var PhotosMimeType = __webpack_require__(129);
 
-var createArrayFromMixed = __webpack_require__(134);
-var emptyFunction = __webpack_require__(9);
+var createArrayFromMixed = __webpack_require__(130);
+var emptyFunction = __webpack_require__(8);
 
 var CR_LF_REGEX = new RegExp('\r\n', 'g');
 var LF_ONLY = '\n';
@@ -10550,7 +10183,7 @@ var DataTransfer = function () {
 module.exports = DataTransfer;
 
 /***/ }),
-/* 62 */
+/* 59 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10563,7 +10196,7 @@ module.exports = DataTransfer;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getSelectionOffsetKeyForNode
- * @format
+ * @typechecks
  * 
  */
 
@@ -10593,7 +10226,7 @@ function getSelectionOffsetKeyForNode(node) {
 module.exports = getSelectionOffsetKeyForNode;
 
 /***/ }),
-/* 63 */
+/* 60 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10606,7 +10239,6 @@ module.exports = getSelectionOffsetKeyForNode;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getTextContentFromFiles
- * @format
  * 
  */
 
@@ -10677,10 +10309,10 @@ function readFile(file, callback) {
 }
 
 module.exports = getTextContentFromFiles;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), __webpack_require__(0)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12), __webpack_require__(0)))
 
 /***/ }),
-/* 64 */
+/* 61 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10693,15 +10325,14 @@ module.exports = getTextContentFromFiles;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getUpdatedSelectionState
- * @format
  * 
  */
 
 
 
-var DraftOffsetKey = __webpack_require__(30);
+var DraftOffsetKey = __webpack_require__(27);
 
-var nullthrows = __webpack_require__(10);
+var nullthrows = __webpack_require__(6);
 
 function getUpdatedSelectionState(editorState, anchorKey, anchorOffset, focusKey, focusOffset) {
   var selection = nullthrows(editorState.getSelection());
@@ -10763,7 +10394,7 @@ module.exports = getUpdatedSelectionState;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 65 */
+/* 62 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10776,13 +10407,12 @@ module.exports = getUpdatedSelectionState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getFragmentFromSelection
- * @format
  * 
  */
 
 
 
-var getContentStateFragment = __webpack_require__(27);
+var getContentStateFragment = __webpack_require__(24);
 
 function getFragmentFromSelection(editorState) {
   var selectionState = editorState.getSelection();
@@ -10797,7 +10427,7 @@ function getFragmentFromSelection(editorState) {
 module.exports = getFragmentFromSelection;
 
 /***/ }),
-/* 66 */
+/* 63 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10810,7 +10440,7 @@ module.exports = getFragmentFromSelection;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getRangeClientRects
- * @format
+ * @typechecks
  * 
  */
 
@@ -10867,7 +10497,7 @@ module.exports = getRangeClientRects;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 67 */
+/* 64 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10880,17 +10510,17 @@ module.exports = getRangeClientRects;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getDraftEditorSelectionWithNodes
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var findAncestorOffsetKey = __webpack_require__(41);
-var getSelectionOffsetKeyForNode = __webpack_require__(62);
-var getUpdatedSelectionState = __webpack_require__(64);
+var findAncestorOffsetKey = __webpack_require__(39);
+var getSelectionOffsetKeyForNode = __webpack_require__(59);
+var getUpdatedSelectionState = __webpack_require__(61);
 var invariant = __webpack_require__(1);
-var nullthrows = __webpack_require__(10);
+var nullthrows = __webpack_require__(6);
 
 /**
  * Convert the current selection range to an anchor/focus pair of offset keys
@@ -10967,9 +10597,7 @@ function getDraftEditorSelectionWithNodes(editorState, root, anchorNode, anchorO
  * Identify the first leaf descendant for the given node.
  */
 function getFirstLeaf(node) {
-  while (node.firstChild && (
-  // data-blocks has no offset
-  node.firstChild instanceof Element && node.firstChild.getAttribute('data-blocks') === 'true' || getSelectionOffsetKeyForNode(node.firstChild))) {
+  while (node.firstChild && getSelectionOffsetKeyForNode(node.firstChild)) {
     node = node.firstChild;
   }
   return node;
@@ -10979,9 +10607,7 @@ function getFirstLeaf(node) {
  * Identify the last leaf descendant for the given node.
  */
 function getLastLeaf(node) {
-  while (node.lastChild && (
-  // data-blocks has no offset
-  node.lastChild instanceof Element && node.lastChild.getAttribute('data-blocks') === 'true' || getSelectionOffsetKeyForNode(node.lastChild))) {
+  while (node.lastChild && getSelectionOffsetKeyForNode(node.lastChild)) {
     node = node.lastChild;
   }
   return node;
@@ -11057,7 +10683,7 @@ module.exports = getDraftEditorSelectionWithNodes;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 68 */
+/* 65 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11070,13 +10696,13 @@ module.exports = getDraftEditorSelectionWithNodes;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftRemovableWord
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var TokenizeUtil = __webpack_require__(152);
+var TokenizeUtil = __webpack_require__(148);
 
 var punctuation = TokenizeUtil.getPunctuation();
 
@@ -11114,7 +10740,7 @@ var DraftRemovableWord = {
 module.exports = DraftRemovableWord;
 
 /***/ }),
-/* 69 */
+/* 66 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11127,7 +10753,6 @@ module.exports = DraftRemovableWord;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule moveSelectionForward
- * @format
  * 
  */
 
@@ -11165,7 +10790,7 @@ function moveSelectionForward(editorState, maxDistance) {
 module.exports = moveSelectionForward;
 
 /***/ }),
-/* 70 */
+/* 67 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11178,39 +10803,28 @@ module.exports = moveSelectionForward;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule convertFromHTMLToContentBlocks
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+var CharacterMetadata = __webpack_require__(9);
+var ContentBlock = __webpack_require__(13);
+var DefaultDraftBlockRenderMap = __webpack_require__(34);
+var DraftEntity = __webpack_require__(25);
+var Immutable = __webpack_require__(3);
 
-var _knownListItemDepthCl,
-    _assign = __webpack_require__(4);
-
-function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-
-var CharacterMetadata = __webpack_require__(6);
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var DefaultDraftBlockRenderMap = __webpack_require__(36);
-var DraftEntity = __webpack_require__(28);
-var DraftFeatureFlags = __webpack_require__(14);
-var Immutable = __webpack_require__(2);
-
-var _require = __webpack_require__(2),
+var _require = __webpack_require__(3),
     Set = _require.Set;
 
-var URI = __webpack_require__(163);
+var URI = __webpack_require__(159);
 
-var cx = __webpack_require__(18);
-var generateRandomKey = __webpack_require__(12);
-var getSafeBodyFromHTML = __webpack_require__(71);
+var generateRandomKey = __webpack_require__(10);
+var getSafeBodyFromHTML = __webpack_require__(68);
 var invariant = __webpack_require__(1);
-var sanitizeDraftText = __webpack_require__(34);
-
-var experimentalTreeDataSupport = DraftFeatureFlags.draft_tree_data_support;
+var nullthrows = __webpack_require__(6);
+var sanitizeDraftText = __webpack_require__(32);
 
 var List = Immutable.List,
     OrderedSet = Immutable.OrderedSet;
@@ -11247,36 +10861,63 @@ var inlineTags = {
   u: 'UNDERLINE'
 };
 
-var knownListItemDepthClasses = (_knownListItemDepthCl = {}, _defineProperty(_knownListItemDepthCl, cx('public/DraftStyleDefault/depth0'), 0), _defineProperty(_knownListItemDepthCl, cx('public/DraftStyleDefault/depth1'), 1), _defineProperty(_knownListItemDepthCl, cx('public/DraftStyleDefault/depth2'), 2), _defineProperty(_knownListItemDepthCl, cx('public/DraftStyleDefault/depth3'), 3), _defineProperty(_knownListItemDepthCl, cx('public/DraftStyleDefault/depth4'), 4), _knownListItemDepthCl);
-
 var anchorAttr = ['className', 'href', 'rel', 'target', 'title'];
 
 var imgAttr = ['alt', 'className', 'height', 'src', 'width'];
 
-var lastBlock = void 0;
+var lastBlock;
 
-var EMPTY_CHUNK = {
-  text: '',
-  inlines: [],
-  entities: [],
-  blocks: []
-};
+function getEmptyChunk() {
+  return {
+    text: '',
+    inlines: [],
+    entities: [],
+    blocks: []
+  };
+}
 
-var EMPTY_BLOCK = {
-  children: List(),
-  depth: 0,
-  key: '',
-  type: ''
-};
+function getWhitespaceChunk(inEntity) {
+  var entities = new Array(1);
+  if (inEntity) {
+    entities[0] = inEntity;
+  }
+  return {
+    text: SPACE,
+    inlines: [OrderedSet()],
+    entities: entities,
+    blocks: []
+  };
+}
 
-var getListBlockType = function getListBlockType(tag, lastList) {
+function getSoftNewlineChunk() {
+  return {
+    text: '\n',
+    inlines: [OrderedSet()],
+    entities: new Array(1),
+    blocks: []
+  };
+}
+
+function getBlockDividerChunk(block, depth) {
+  return {
+    text: '\r',
+    inlines: [OrderedSet()],
+    entities: new Array(1),
+    blocks: [{
+      type: block,
+      depth: Math.max(0, Math.min(MAX_DEPTH, depth))
+    }]
+  };
+}
+
+function getListBlockType(tag, lastList) {
   if (tag === 'li') {
     return lastList === 'ol' ? 'ordered-list-item' : 'unordered-list-item';
   }
   return null;
-};
+}
 
-var getBlockMapSupportedTags = function getBlockMapSupportedTags(blockRenderMap) {
+function getBlockMapSupportedTags(blockRenderMap) {
   var unstyledElement = blockRenderMap.get('unstyled').element;
   var tags = Set([]);
 
@@ -11293,10 +10934,10 @@ var getBlockMapSupportedTags = function getBlockMapSupportedTags(blockRenderMap)
   return tags.filter(function (tag) {
     return tag && tag !== unstyledElement;
   }).toArray().sort();
-};
+}
 
 // custom element conversions
-var getMultiMatchedType = function getMultiMatchedType(tag, lastList, multiMatchExtractor) {
+function getMultiMatchedType(tag, lastList, multiMatchExtractor) {
   for (var ii = 0; ii < multiMatchExtractor.length; ii++) {
     var matchType = multiMatchExtractor[ii](tag, lastList);
     if (matchType) {
@@ -11304,9 +10945,9 @@ var getMultiMatchedType = function getMultiMatchedType(tag, lastList, multiMatch
     }
   }
   return null;
-};
+}
 
-var getBlockTypeForTag = function getBlockTypeForTag(tag, lastList, blockRenderMap) {
+function getBlockTypeForTag(tag, lastList, blockRenderMap) {
   var matchedTypes = blockRenderMap.filter(function (draftBlock) {
     return draftBlock.element === tag || draftBlock.wrapper === tag || draftBlock.aliasedElements && draftBlock.aliasedElements.some(function (alias) {
       return alias === tag;
@@ -11324,9 +10965,9 @@ var getBlockTypeForTag = function getBlockTypeForTag(tag, lastList, blockRenderM
     default:
       return getMultiMatchedType(tag, lastList, [getListBlockType]) || 'unstyled';
   }
-};
+}
 
-var processInlineTag = function processInlineTag(tag, node, currentStyle) {
+function processInlineTag(tag, node, currentStyle) {
   var styleToCheck = inlineTags[tag];
   if (styleToCheck) {
     currentStyle = currentStyle.add(styleToCheck).toOrderedSet();
@@ -11362,15 +11003,15 @@ var processInlineTag = function processInlineTag(tag, node, currentStyle) {
     }).toOrderedSet();
   }
   return currentStyle;
-};
+}
 
-var joinChunks = function joinChunks(A, B, experimentalHasNestedBlocks) {
+function joinChunks(A, B) {
   // Sometimes two blocks will touch in the DOM and we need to strip the
   // extra delimiter to preserve niceness.
   var lastInA = A.text.slice(-1);
   var firstInB = B.text.slice(0, 1);
 
-  if (lastInA === '\r' && firstInB === '\r' && !experimentalHasNestedBlocks) {
+  if (lastInA === '\r' && firstInB === '\r') {
     A.text = A.text.slice(0, -1);
     A.inlines.pop();
     A.entities.pop();
@@ -11394,113 +11035,41 @@ var joinChunks = function joinChunks(A, B, experimentalHasNestedBlocks) {
     entities: A.entities.concat(B.entities),
     blocks: A.blocks.concat(B.blocks)
   };
-};
+}
 
 /**
  * Check to see if we have anything like <p> <blockquote> <h1>... to create
  * block tags from. If we do, we can use those and ignore <div> tags. If we
  * don't, we can treat <div> tags as meaningful (unstyled) blocks.
  */
-var containsSemanticBlockMarkup = function containsSemanticBlockMarkup(html, blockTags) {
+function containsSemanticBlockMarkup(html, blockTags) {
   return blockTags.some(function (tag) {
     return html.indexOf('<' + tag) !== -1;
   });
-};
+}
 
-var hasValidLinkText = function hasValidLinkText(link) {
+function hasValidLinkText(link) {
   !(link instanceof HTMLAnchorElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Link must be an HTMLAnchorElement.') : invariant(false) : void 0;
   var protocol = link.protocol;
   return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:';
-};
+}
 
-var getWhitespaceChunk = function getWhitespaceChunk(inEntity) {
-  var entities = new Array(1);
-  if (inEntity) {
-    entities[0] = inEntity;
-  }
-  return _extends({}, EMPTY_CHUNK, {
-    text: SPACE,
-    inlines: [OrderedSet()],
-    entities: entities
-  });
-};
-
-var getSoftNewlineChunk = function getSoftNewlineChunk() {
-  return _extends({}, EMPTY_CHUNK, {
-    text: '\n',
-    inlines: [OrderedSet()],
-    entities: new Array(1)
-  });
-};
-
-var getChunkedBlock = function getChunkedBlock() {
-  var props = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-  return _extends({}, EMPTY_BLOCK, props);
-};
-
-var getBlockDividerChunk = function getBlockDividerChunk(block, depth) {
-  var parentKey = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
-
-  return {
-    text: '\r',
-    inlines: [OrderedSet()],
-    entities: new Array(1),
-    blocks: [getChunkedBlock({
-      parent: parentKey,
-      key: generateRandomKey(),
-      type: block,
-      depth: Math.max(0, Math.min(MAX_DEPTH, depth))
-    })]
-  };
-};
-
-/**
- *  If we're pasting from one DraftEditor to another we can check to see if
- *  existing list item depth classes are being used and preserve this style
- */
-var getListItemDepth = function getListItemDepth(node) {
-  var depth = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
-
-  Object.keys(knownListItemDepthClasses).some(function (depthClass) {
-    if (node.classList.contains(depthClass)) {
-      depth = knownListItemDepthClasses[depthClass];
-    }
-  });
-  return depth;
-};
-
-var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, inBlock, blockTags, depth, blockRenderMap, inEntity, parentKey) {
-  var lastLastBlock = lastBlock;
+function genFragment(entityMap, node, inlineStyle, lastList, inBlock, blockTags, depth, blockRenderMap, inEntity) {
   var nodeName = node.nodeName.toLowerCase();
-  var newEntityMap = entityMap;
-  var nextBlockType = 'unstyled';
   var newBlock = false;
-  var inBlockType = inBlock && getBlockTypeForTag(inBlock, lastList, blockRenderMap);
-  var chunk = _extends({}, EMPTY_CHUNK);
-  var newChunk = null;
-  var blockKey = void 0;
+  var nextBlockType = 'unstyled';
+  var lastLastBlock = lastBlock;
+  var newEntityMap = entityMap;
 
   // Base Case
   if (nodeName === '#text') {
-    var _text = node.textContent;
-    var nodeTextContent = _text.trim();
-
-    // We should not create blocks for leading spaces that are
-    // existing around ol/ul and their children list items
-    if (lastList && nodeTextContent === '' && node.parentElement) {
-      var parentNodeName = node.parentElement.nodeName.toLowerCase();
-      if (parentNodeName === 'ol' || parentNodeName === 'ul') {
-        return { chunk: _extends({}, EMPTY_CHUNK), entityMap: entityMap };
-      }
-    }
-
-    if (nodeTextContent === '' && inBlock !== 'pre') {
+    var text = node.textContent;
+    if (text.trim() === '' && inBlock !== 'pre') {
       return { chunk: getWhitespaceChunk(inEntity), entityMap: entityMap };
     }
     if (inBlock !== 'pre') {
       // Can't use empty string because MSWord
-      _text = _text.replace(REGEX_LF, SPACE);
+      text = text.replace(REGEX_LF, SPACE);
     }
 
     // save the last block so we can use it later
@@ -11508,9 +11077,9 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
 
     return {
       chunk: {
-        text: _text,
-        inlines: Array(_text.length).fill(inlineStyle),
-        entities: Array(_text.length).fill(inEntity),
+        text: text,
+        inlines: Array(text.length).fill(inlineStyle),
+        entities: Array(text.length).fill(inEntity),
         blocks: []
       },
       entityMap: entityMap
@@ -11522,11 +11091,8 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
 
   // BR tags
   if (nodeName === 'br') {
-    if (lastLastBlock === 'br' && (!inBlock || inBlockType === 'unstyled')) {
-      return {
-        chunk: getBlockDividerChunk('unstyled', depth, parentKey),
-        entityMap: entityMap
-      };
+    if (lastLastBlock === 'br' && (!inBlock || getBlockTypeForTag(inBlock, lastList, blockRenderMap) === 'unstyled')) {
+      return { chunk: getBlockDividerChunk('unstyled', depth), entityMap: entityMap };
     }
     return { chunk: getSoftNewlineChunk(), entityMap: entityMap };
   }
@@ -11553,6 +11119,9 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
     inEntity = DraftEntity.__create('IMAGE', 'MUTABLE', entityConfig || {});
   }
 
+  var chunk = getEmptyChunk();
+  var newChunk = null;
+
   // Inline tags
   inlineStyle = processInlineTag(nodeName, node, inlineStyle);
 
@@ -11564,24 +11133,15 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
     lastList = nodeName;
   }
 
-  if (!experimentalTreeDataSupport && nodeName === 'li' && node instanceof HTMLElement) {
-    depth = getListItemDepth(node, depth);
-  }
-
-  var blockType = getBlockTypeForTag(nodeName, lastList, blockRenderMap);
-  var inListBlock = lastList && inBlock === 'li' && nodeName === 'li';
-  var inBlockOrHasNestedBlocks = (!inBlock || experimentalTreeDataSupport) && blockTags.indexOf(nodeName) !== -1;
-
   // Block Tags
-  if (inListBlock || inBlockOrHasNestedBlocks) {
-    chunk = getBlockDividerChunk(blockType, depth, parentKey);
-    blockKey = chunk.blocks[0].key;
+  if (!inBlock && blockTags.indexOf(nodeName) !== -1) {
+    chunk = getBlockDividerChunk(getBlockTypeForTag(nodeName, lastList, blockRenderMap), depth);
     inBlock = nodeName;
-    newBlock = !experimentalTreeDataSupport;
-  }
-
-  // this is required so that we can handle 'ul' and 'ol'
-  if (inListBlock) {
+    newBlock = true;
+  } else if (lastList && inBlock === 'li' && nodeName === 'li') {
+    chunk = getBlockDividerChunk(getBlockTypeForTag(nodeName, lastList, blockRenderMap), depth);
+    inBlock = nodeName;
+    newBlock = true;
     nextBlockType = lastList === 'ul' ? 'unordered-list-item' : 'ordered-list-item';
   }
 
@@ -11614,18 +11174,18 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
       entityId = undefined;
     }
 
-    var _genFragment = genFragment(newEntityMap, child, inlineStyle, lastList, inBlock, blockTags, depth, blockRenderMap, entityId || inEntity, experimentalTreeDataSupport ? blockKey : null),
+    var _genFragment = genFragment(newEntityMap, child, inlineStyle, lastList, inBlock, blockTags, depth, blockRenderMap, entityId || inEntity),
         generatedChunk = _genFragment.chunk,
         maybeUpdatedEntityMap = _genFragment.entityMap;
 
     newChunk = generatedChunk;
     newEntityMap = maybeUpdatedEntityMap;
 
-    chunk = joinChunks(chunk, newChunk, experimentalTreeDataSupport);
+    chunk = joinChunks(chunk, newChunk);
     var sibling = child.nextSibling;
 
     // Put in a newline to break up blocks inside blocks
-    if (!parentKey && sibling && blockTags.indexOf(nodeName) >= 0 && inBlock) {
+    if (sibling && blockTags.indexOf(nodeName) >= 0 && inBlock) {
       chunk = joinChunks(chunk, getSoftNewlineChunk());
     }
     if (sibling) {
@@ -11635,13 +11195,13 @@ var genFragment = function genFragment(entityMap, node, inlineStyle, lastList, i
   }
 
   if (newBlock) {
-    chunk = joinChunks(chunk, getBlockDividerChunk(nextBlockType, depth, parentKey));
+    chunk = joinChunks(chunk, getBlockDividerChunk(nextBlockType, depth));
   }
 
   return { chunk: chunk, entityMap: newEntityMap };
-};
+}
 
-var getChunkForHTML = function getChunkForHTML(html, DOMBuilder, blockRenderMap, entityMap) {
+function getChunkForHTML(html, DOMBuilder, blockRenderMap, entityMap) {
   html = html.trim().replace(REGEX_CR, '').replace(REGEX_NBSP, SPACE).replace(REGEX_CARRIAGE, '').replace(REGEX_ZWS, '');
 
   var supportedBlockTags = getBlockMapSupportedTags(blockRenderMap);
@@ -11659,12 +11219,14 @@ var getChunkForHTML = function getChunkForHTML(html, DOMBuilder, blockRenderMap,
 
   // Start with -1 block depth to offset the fact that we are passing in a fake
   // UL block to start with.
-  var fragment = genFragment(entityMap, safeBody, OrderedSet(), 'ul', null, workingBlocks, -1, blockRenderMap);
 
-  var chunk = fragment.chunk;
-  var newEntityMap = fragment.entityMap;
+  var _genFragment2 = genFragment(entityMap, safeBody, OrderedSet(), 'ul', null, workingBlocks, -1, blockRenderMap),
+      chunk = _genFragment2.chunk,
+      newEntityMap = _genFragment2.entityMap;
 
   // join with previous block to prevent weirdness on paste
+
+
   if (chunk.text.indexOf('\r') === 0) {
     chunk = {
       text: chunk.text.slice(1),
@@ -11684,10 +11246,7 @@ var getChunkForHTML = function getChunkForHTML(html, DOMBuilder, blockRenderMap,
 
   // If we saw no block tags, put an unstyled one in
   if (chunk.blocks.length === 0) {
-    chunk.blocks.push(_extends({}, EMPTY_CHUNK, {
-      type: 'unstyled',
-      depth: 0
-    }));
+    chunk.blocks.push({ type: 'unstyled', depth: 0 });
   }
 
   // Sometimes we start with text that isn't in a block, which is then
@@ -11698,103 +11257,9 @@ var getChunkForHTML = function getChunkForHTML(html, DOMBuilder, blockRenderMap,
   }
 
   return { chunk: chunk, entityMap: newEntityMap };
-};
+}
 
-var convertChunkToContentBlocks = function convertChunkToContentBlocks(chunk) {
-  if (!chunk || !chunk.text || !Array.isArray(chunk.blocks)) {
-    return null;
-  }
-
-  var initialState = {
-    cacheRef: {},
-    contentBlocks: []
-  };
-
-  var start = 0;
-
-  var rawBlocks = chunk.blocks,
-      rawInlines = chunk.inlines,
-      rawEntities = chunk.entities;
-
-
-  var BlockNodeRecord = experimentalTreeDataSupport ? ContentBlockNode : ContentBlock;
-
-  return chunk.text.split('\r').reduce(function (acc, textBlock, index) {
-    // Make absolutely certain that our text is acceptable.
-    textBlock = sanitizeDraftText(textBlock);
-
-    var block = rawBlocks[index];
-    var end = start + textBlock.length;
-    var inlines = rawInlines.slice(start, end);
-    var entities = rawEntities.slice(start, end);
-    var characterList = List(inlines.map(function (style, index) {
-      var data = { style: style, entity: null };
-      if (entities[index]) {
-        data.entity = entities[index];
-      }
-      return CharacterMetadata.create(data);
-    }));
-    start = end + 1;
-
-    var depth = block.depth,
-        type = block.type,
-        parent = block.parent;
-
-
-    var key = block.key || generateRandomKey();
-    var parentTextNodeKey = null; // will be used to store container text nodes
-
-    // childrens add themselves to their parents since we are iterating in order
-    if (parent) {
-      var parentIndex = acc.cacheRef[parent];
-      var parentRecord = acc.contentBlocks[parentIndex];
-
-      // if parent has text we need to split it into a separate unstyled element
-      if (parentRecord.getChildKeys().isEmpty() && parentRecord.getText()) {
-        var parentCharacterList = parentRecord.getCharacterList();
-        var parentText = parentRecord.getText();
-        parentTextNodeKey = generateRandomKey();
-
-        var textNode = new ContentBlockNode({
-          key: parentTextNodeKey,
-          text: parentText,
-          characterList: parentCharacterList,
-          parent: parent,
-          nextSibling: key
-        });
-
-        acc.contentBlocks.push(textNode);
-
-        parentRecord = parentRecord.withMutations(function (block) {
-          block.set('characterList', List()).set('text', '').set('children', parentRecord.children.push(textNode.getKey()));
-        });
-      }
-
-      acc.contentBlocks[parentIndex] = parentRecord.set('children', parentRecord.children.push(key));
-    }
-
-    var blockNode = new BlockNodeRecord({
-      key: key,
-      parent: parent,
-      type: type,
-      depth: depth,
-      text: textBlock,
-      characterList: characterList,
-      prevSibling: parentTextNodeKey || (index === 0 || rawBlocks[index - 1].parent !== parent ? null : rawBlocks[index - 1].key),
-      nextSibling: index === rawBlocks.length - 1 || rawBlocks[index + 1].parent !== parent ? null : rawBlocks[index + 1].key
-    });
-
-    // insert node
-    acc.contentBlocks.push(blockNode);
-
-    // cache ref for building links
-    acc.cacheRef[blockNode.key] = index;
-
-    return acc;
-  }, initialState).contentBlocks;
-};
-
-var convertFromHTMLtoContentBlocks = function convertFromHTMLtoContentBlocks(html) {
+function convertFromHTMLtoContentBlocks(html) {
   var DOMBuilder = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : getSafeBodyFromHTML;
   var blockRenderMap = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : DefaultDraftBlockRenderMap;
 
@@ -11810,21 +11275,43 @@ var convertFromHTMLtoContentBlocks = function convertFromHTMLtoContentBlocks(htm
   }
 
   var chunk = chunkData.chunk,
-      entityMap = chunkData.entityMap;
+      newEntityMap = chunkData.entityMap;
 
-  var contentBlocks = convertChunkToContentBlocks(chunk);
 
+  var start = 0;
   return {
-    contentBlocks: contentBlocks,
-    entityMap: entityMap
+    contentBlocks: chunk.text.split('\r').map(function (textBlock, ii) {
+      // Make absolutely certain that our text is acceptable.
+      textBlock = sanitizeDraftText(textBlock);
+      var end = start + textBlock.length;
+      var inlines = nullthrows(chunk).inlines.slice(start, end);
+      var entities = nullthrows(chunk).entities.slice(start, end);
+      var characterList = List(inlines.map(function (style, ii) {
+        var data = { style: style, entity: null };
+        if (entities[ii]) {
+          data.entity = entities[ii];
+        }
+        return CharacterMetadata.create(data);
+      }));
+      start = end + 1;
+
+      return new ContentBlock({
+        key: generateRandomKey(),
+        type: nullthrows(chunk).blocks[ii].type,
+        depth: nullthrows(chunk).blocks[ii].depth,
+        text: textBlock,
+        characterList: characterList
+      });
+    }),
+    entityMap: newEntityMap
   };
-};
+}
 
 module.exports = convertFromHTMLtoContentBlocks;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 71 */
+/* 68 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11837,7 +11324,6 @@ module.exports = convertFromHTMLtoContentBlocks;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getSafeBodyFromHTML
- * @format
  * 
  */
 
@@ -11870,7 +11356,7 @@ module.exports = getSafeBodyFromHTML;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 72 */
+/* 69 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11883,18 +11369,18 @@ module.exports = getSafeBodyFromHTML;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule RichTextEditorUtil
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
-var SelectionState = __webpack_require__(17);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
+var SelectionState = __webpack_require__(16);
 
-var adjustBlockDepthForContentState = __webpack_require__(164);
-var nullthrows = __webpack_require__(10);
+var adjustBlockDepthForContentState = __webpack_require__(160);
+var nullthrows = __webpack_require__(6);
 
 var RichTextEditorUtil = {
   currentBlockContainsLink: function currentBlockContainsLink(editorState) {
@@ -11965,10 +11451,7 @@ var RichTextEditorUtil = {
 
     if (blockBefore && blockBefore.getType() === 'atomic') {
       var blockMap = content.getBlockMap()['delete'](blockBefore.getKey());
-      var withoutAtomicBlock = content.merge({
-        blockMap: blockMap,
-        selectionAfter: selection
-      });
+      var withoutAtomicBlock = content.merge({ blockMap: blockMap, selectionAfter: selection });
       if (withoutAtomicBlock !== content) {
         return EditorState.push(editorState, withoutAtomicBlock, 'remove-range');
       }
@@ -12152,8 +11635,8 @@ var RichTextEditorUtil = {
   },
 
   /**
-   * When a collapsed cursor is at the start of the first styled block, or
-   * an empty styled block, changes block to 'unstyled'. Returns null if
+   * When a collapsed cursor is at the start of the first styled block, or 
+   * an empty styled block, changes block to 'unstyled'. Returns null if 
    * block or selection does not meet that criteria.
    */
   tryToRemoveBlockStyle: function tryToRemoveBlockStyle(editorState) {
@@ -12171,7 +11654,7 @@ var RichTextEditorUtil = {
 
       var type = block.getType();
       var blockBefore = content.getBlockBefore(key);
-      if (type === 'code-block' && blockBefore && blockBefore.getType() === 'code-block' && blockBefore.getLength() !== 0) {
+      if (type === 'code-block' && blockBefore && blockBefore.getType() === 'code-block') {
         return null;
       }
 
@@ -12186,7 +11669,7 @@ var RichTextEditorUtil = {
 module.exports = RichTextEditorUtil;
 
 /***/ }),
-/* 73 */
+/* 70 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12199,14 +11682,14 @@ module.exports = RichTextEditorUtil;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getDefaultKeyBinding
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var KeyBindingUtil = __webpack_require__(42);
-var Keys = __webpack_require__(37);
+var KeyBindingUtil = __webpack_require__(40);
+var Keys = __webpack_require__(35);
 var UserAgent = __webpack_require__(11);
 
 var isOSX = UserAgent.isPlatform('Mac OS X');
@@ -12316,7 +11799,7 @@ function getDefaultKeyBinding(e) {
 module.exports = getDefaultKeyBinding;
 
 /***/ }),
-/* 74 */
+/* 71 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12329,7 +11812,7 @@ module.exports = getDefaultKeyBinding;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftStringKey
- * @format
+ * @typechecks
  * 
  */
 
@@ -12348,7 +11831,7 @@ var DraftStringKey = {
 module.exports = DraftStringKey;
 
 /***/ }),
-/* 75 */
+/* 72 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12358,15 +11841,15 @@ var _extends = Object.assign || function (target) { for (var i = 1; i < argument
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _react = __webpack_require__(8);
+var _react = __webpack_require__(7);
 
 var _react2 = _interopRequireDefault(_react);
 
-var _styledComponents = __webpack_require__(78);
+var _styledComponents = __webpack_require__(75);
 
 var _styledComponents2 = _interopRequireDefault(_styledComponents);
 
-var _draftJs = __webpack_require__(87);
+var _draftJs = __webpack_require__(84);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12445,7 +11928,7 @@ module.exports.mutations = {
 };
 
 /***/ }),
-/* 76 */
+/* 73 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12458,7 +11941,7 @@ module.exports.mutations = {
  * LICENSE file in the root directory of this source tree.
  */
 
-var m=__webpack_require__(4),n=__webpack_require__(25),p=__webpack_require__(9),q="function"===typeof Symbol&&Symbol["for"],r=q?Symbol["for"]("react.element"):60103,t=q?Symbol["for"]("react.call"):60104,u=q?Symbol["for"]("react.return"):60105,v=q?Symbol["for"]("react.portal"):60106,w=q?Symbol["for"]("react.fragment"):60107,x="function"===typeof Symbol&&Symbol.iterator;
+var m=__webpack_require__(5),n=__webpack_require__(21),p=__webpack_require__(8),q="function"===typeof Symbol&&Symbol["for"],r=q?Symbol["for"]("react.element"):60103,t=q?Symbol["for"]("react.call"):60104,u=q?Symbol["for"]("react.return"):60105,v=q?Symbol["for"]("react.portal"):60106,w=q?Symbol["for"]("react.fragment"):60107,x="function"===typeof Symbol&&Symbol.iterator;
 function y(a){for(var b=arguments.length-1,e="Minified React error #"+a+"; visit http://facebook.github.io/react/docs/error-decoder.html?invariant\x3d"+a,c=0;c<b;c++)e+="\x26args[]\x3d"+encodeURIComponent(arguments[c+1]);b=Error(e+" for the full message or use the non-minified dev environment for full errors and additional helpful warnings.");b.name="Invariant Violation";b.framesToPop=1;throw b;}
 var z={isMounted:function(){return!1},enqueueForceUpdate:function(){},enqueueReplaceState:function(){},enqueueSetState:function(){}};function A(a,b,e){this.props=a;this.context=b;this.refs=n;this.updater=e||z}A.prototype.isReactComponent={};A.prototype.setState=function(a,b){"object"!==typeof a&&"function"!==typeof a&&null!=a?y("85"):void 0;this.updater.enqueueSetState(this,a,b,"setState")};A.prototype.forceUpdate=function(a){this.updater.enqueueForceUpdate(this,a,"forceUpdate")};
 function B(a,b,e){this.props=a;this.context=b;this.refs=n;this.updater=e||z}function C(){}C.prototype=A.prototype;var D=B.prototype=new C;D.constructor=B;m(D,A.prototype);D.isPureReactComponent=!0;function E(a,b,e){this.props=a;this.context=b;this.refs=n;this.updater=e||z}var F=E.prototype=new C;F.constructor=E;m(F,A.prototype);F.unstable_isAsyncReactComponent=!0;F.render=function(){return this.props.children};var G={current:null},H=Object.prototype.hasOwnProperty,I={key:!0,ref:!0,__self:!0,__source:!0};
@@ -12473,7 +11956,7 @@ isValidElement:K,version:"16.2.0",__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_F
 
 
 /***/ }),
-/* 77 */
+/* 74 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12494,12 +11977,12 @@ if (process.env.NODE_ENV !== "production") {
   (function() {
 'use strict';
 
-var _assign = __webpack_require__(4);
-var emptyObject = __webpack_require__(25);
+var _assign = __webpack_require__(5);
+var emptyObject = __webpack_require__(21);
 var invariant = __webpack_require__(1);
-var warning = __webpack_require__(26);
-var emptyFunction = __webpack_require__(9);
-var checkPropTypes = __webpack_require__(31);
+var warning = __webpack_require__(22);
+var emptyFunction = __webpack_require__(8);
+var checkPropTypes = __webpack_require__(29);
 
 // TODO: this is special because it gets imported during build.
 
@@ -13838,7 +13321,7 @@ module.exports = react;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 78 */
+/* 75 */
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -13850,15 +13333,15 @@ Object.defineProperty(__webpack_exports__, "__esModule", { value: true });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "withTheme", function() { return wrapWithTheme; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "ServerStyleSheet", function() { return ServerStyleSheet; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "StyleSheetManager", function() { return StyleSheetManager; });
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_is_plain_object__ = __webpack_require__(80);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_is_plain_object__ = __webpack_require__(77);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_0_is_plain_object___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_0_is_plain_object__);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_stylis__ = __webpack_require__(82);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_stylis__ = __webpack_require__(79);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_1_stylis___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_1_stylis__);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2_react__ = __webpack_require__(8);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_2_react__ = __webpack_require__(7);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_2_react___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_2_react__);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3_prop_types__ = __webpack_require__(83);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_3_prop_types__ = __webpack_require__(80);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_3_prop_types___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_3_prop_types__);
-/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4_hoist_non_react_statics__ = __webpack_require__(86);
+/* harmony import */ var __WEBPACK_IMPORTED_MODULE_4_hoist_non_react_statics__ = __webpack_require__(83);
 /* harmony import */ var __WEBPACK_IMPORTED_MODULE_4_hoist_non_react_statics___default = __webpack_require__.n(__WEBPACK_IMPORTED_MODULE_4_hoist_non_react_statics__);
 
 
@@ -15585,10 +15068,10 @@ var styled = _styled(StyledComponent, constructWithOptions);
 
 /* harmony default export */ __webpack_exports__["default"] = (styled);
 
-/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(0), __webpack_require__(79)(module)))
+/* WEBPACK VAR INJECTION */}.call(__webpack_exports__, __webpack_require__(0), __webpack_require__(76)(module)))
 
 /***/ }),
-/* 79 */
+/* 76 */
 /***/ (function(module, exports) {
 
 module.exports = function(originalModule) {
@@ -15618,7 +15101,7 @@ module.exports = function(originalModule) {
 
 
 /***/ }),
-/* 80 */
+/* 77 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15631,7 +15114,7 @@ module.exports = function(originalModule) {
 
 
 
-var isObject = __webpack_require__(81);
+var isObject = __webpack_require__(78);
 
 function isObjectObject(o) {
   return isObject(o) === true
@@ -15662,7 +15145,7 @@ module.exports = function isPlainObject(o) {
 
 
 /***/ }),
-/* 81 */
+/* 78 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15681,7 +15164,7 @@ module.exports = function isObject(val) {
 
 
 /***/ }),
-/* 82 */
+/* 79 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /*
@@ -17295,7 +16778,7 @@ module.exports = function isObject(val) {
 
 
 /***/ }),
-/* 83 */
+/* 80 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /* WEBPACK VAR INJECTION */(function(process) {/**
@@ -17320,17 +16803,17 @@ if (process.env.NODE_ENV !== 'production') {
   // By explicitly using `prop-types` you are opting into new development behavior.
   // http://fb.me/prop-types-in-prod
   var throwOnDirectAccess = true;
-  module.exports = __webpack_require__(84)(isValidElement, throwOnDirectAccess);
+  module.exports = __webpack_require__(81)(isValidElement, throwOnDirectAccess);
 } else {
   // By explicitly using `prop-types` you are opting into new production behavior.
   // http://fb.me/prop-types-in-prod
-  module.exports = __webpack_require__(85)();
+  module.exports = __webpack_require__(82)();
 }
 
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 84 */
+/* 81 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -17343,13 +16826,13 @@ if (process.env.NODE_ENV !== 'production') {
 
 
 
-var emptyFunction = __webpack_require__(9);
+var emptyFunction = __webpack_require__(8);
 var invariant = __webpack_require__(1);
-var warning = __webpack_require__(26);
-var assign = __webpack_require__(4);
+var warning = __webpack_require__(22);
+var assign = __webpack_require__(5);
 
-var ReactPropTypesSecret = __webpack_require__(32);
-var checkPropTypes = __webpack_require__(31);
+var ReactPropTypesSecret = __webpack_require__(30);
+var checkPropTypes = __webpack_require__(29);
 
 module.exports = function(isValidElement, throwOnDirectAccess) {
   /* global Symbol */
@@ -17880,7 +17363,7 @@ module.exports = function(isValidElement, throwOnDirectAccess) {
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 85 */
+/* 82 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -17893,9 +17376,9 @@ module.exports = function(isValidElement, throwOnDirectAccess) {
 
 
 
-var emptyFunction = __webpack_require__(9);
+var emptyFunction = __webpack_require__(8);
 var invariant = __webpack_require__(1);
-var ReactPropTypesSecret = __webpack_require__(32);
+var ReactPropTypesSecret = __webpack_require__(30);
 
 module.exports = function() {
   function shim(props, propName, componentName, location, propFullName, secret) {
@@ -17945,7 +17428,7 @@ module.exports = function() {
 
 
 /***/ }),
-/* 86 */
+/* 83 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18002,7 +17485,7 @@ module.exports = function hoistNonReactStatics(targetComponent, sourceComponent,
 
 
 /***/ }),
-/* 87 */
+/* 84 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18015,36 +17498,35 @@ module.exports = function hoistNonReactStatics(targetComponent, sourceComponent,
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule Draft
- * @format
  * 
  */
 
 
 
-var AtomicBlockUtils = __webpack_require__(88);
-var BlockMapBuilder = __webpack_require__(19);
-var CharacterMetadata = __webpack_require__(6);
-var CompositeDraftDecorator = __webpack_require__(104);
-var ContentBlock = __webpack_require__(15);
-var ContentState = __webpack_require__(33);
-var DefaultDraftBlockRenderMap = __webpack_require__(36);
-var DefaultDraftInlineStyle = __webpack_require__(51);
-var DraftEditor = __webpack_require__(105);
-var DraftEditorBlock = __webpack_require__(53);
-var DraftEntity = __webpack_require__(28);
-var DraftModifier = __webpack_require__(5);
-var DraftEntityInstance = __webpack_require__(49);
-var EditorState = __webpack_require__(3);
-var KeyBindingUtil = __webpack_require__(42);
-var RichTextEditorUtil = __webpack_require__(72);
-var SelectionState = __webpack_require__(17);
+var AtomicBlockUtils = __webpack_require__(85);
+var BlockMapBuilder = __webpack_require__(15);
+var CharacterMetadata = __webpack_require__(9);
+var CompositeDraftDecorator = __webpack_require__(101);
+var ContentBlock = __webpack_require__(13);
+var ContentState = __webpack_require__(31);
+var DefaultDraftBlockRenderMap = __webpack_require__(34);
+var DefaultDraftInlineStyle = __webpack_require__(48);
+var DraftEditor = __webpack_require__(102);
+var DraftEditorBlock = __webpack_require__(50);
+var DraftEntity = __webpack_require__(25);
+var DraftModifier = __webpack_require__(4);
+var DraftEntityInstance = __webpack_require__(46);
+var EditorState = __webpack_require__(2);
+var KeyBindingUtil = __webpack_require__(40);
+var RichTextEditorUtil = __webpack_require__(69);
+var SelectionState = __webpack_require__(16);
 
-var convertFromDraftStateToRaw = __webpack_require__(169);
-var convertFromHTMLToContentBlocks = __webpack_require__(70);
-var convertFromRawToDraftState = __webpack_require__(172);
-var generateRandomKey = __webpack_require__(12);
-var getDefaultKeyBinding = __webpack_require__(73);
-var getVisibleSelectionRect = __webpack_require__(177);
+var convertFromDraftStateToRaw = __webpack_require__(165);
+var convertFromHTMLToContentBlocks = __webpack_require__(67);
+var convertFromRawToDraftState = __webpack_require__(168);
+var generateRandomKey = __webpack_require__(10);
+var getDefaultKeyBinding = __webpack_require__(70);
+var getVisibleSelectionRect = __webpack_require__(172);
 
 var DraftPublic = {
   Editor: DraftEditor,
@@ -18080,7 +17562,7 @@ var DraftPublic = {
 module.exports = DraftPublic;
 
 /***/ }),
-/* 88 */
+/* 85 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18093,31 +17575,22 @@ module.exports = DraftPublic;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule AtomicBlockUtils
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var BlockMapBuilder = __webpack_require__(15);
+var CharacterMetadata = __webpack_require__(9);
+var ContentBlock = __webpack_require__(13);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
+var SelectionState = __webpack_require__(16);
 
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-var BlockMapBuilder = __webpack_require__(19);
-var CharacterMetadata = __webpack_require__(6);
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var DraftFeatureFlags = __webpack_require__(14);
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
-var Immutable = __webpack_require__(2);
-var SelectionState = __webpack_require__(17);
-
-var generateRandomKey = __webpack_require__(12);
-var moveBlockInContentState = __webpack_require__(103);
-
-var experimentalTreeDataSupport = DraftFeatureFlags.draft_tree_data_support;
-var ContentBlockRecord = experimentalTreeDataSupport ? ContentBlockNode : ContentBlock;
+var generateRandomKey = __webpack_require__(10);
+var moveBlockInContentState = __webpack_require__(100);
 
 var List = Immutable.List,
     Repeat = Immutable.Repeat;
@@ -18138,28 +17611,17 @@ var AtomicBlockUtils = {
 
     var charData = CharacterMetadata.create({ entity: entityKey });
 
-    var atomicBlockConfig = {
+    var fragmentArray = [new ContentBlock({
       key: generateRandomKey(),
       type: 'atomic',
       text: character,
       characterList: List(Repeat(charData, character.length))
-    };
-
-    var atomicDividerBlockConfig = {
+    }), new ContentBlock({
       key: generateRandomKey(),
-      type: 'unstyled'
-    };
-
-    if (experimentalTreeDataSupport) {
-      atomicBlockConfig = _extends({}, atomicBlockConfig, {
-        nextSibling: atomicDividerBlockConfig.key
-      });
-      atomicDividerBlockConfig = _extends({}, atomicDividerBlockConfig, {
-        prevSibling: atomicBlockConfig.key
-      });
-    }
-
-    var fragmentArray = [new ContentBlockRecord(atomicBlockConfig), new ContentBlockRecord(atomicDividerBlockConfig)];
+      type: 'unstyled',
+      text: '',
+      characterList: List()
+    })];
 
     var fragment = BlockMapBuilder.createFromArray(fragmentArray);
 
@@ -18215,36 +17677,7 @@ var AtomicBlockUtils = {
 module.exports = AtomicBlockUtils;
 
 /***/ }),
-/* 89 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule DraftFeatureFlags-core
- * @format
- * 
- */
-
-
-
-var DraftFeatureFlags = {
-  draft_killswitch_allow_nontextnodes: false,
-  draft_segmented_entities_behavior: false,
-  draft_handlebeforeinput_composed_text: false,
-  draft_tree_data_support: false
-};
-
-module.exports = DraftFeatureFlags;
-
-/***/ }),
-/* 90 */
+/* 86 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18257,15 +17690,15 @@ module.exports = DraftFeatureFlags;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule ContentStateInlineStyle
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var CharacterMetadata = __webpack_require__(6);
+var CharacterMetadata = __webpack_require__(9);
 
-var _require = __webpack_require__(2),
+var _require = __webpack_require__(3),
     Map = _require.Map;
 
 var ContentStateInlineStyle = {
@@ -18322,7 +17755,33 @@ function modifyInlineStyle(contentState, selectionState, inlineStyle, addOrRemov
 module.exports = ContentStateInlineStyle;
 
 /***/ }),
-/* 91 */
+/* 87 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/**
+ * Copyright 2013-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ *
+ * @providesModule DraftFeatureFlags-core
+ * 
+ */
+
+
+
+var DraftFeatureFlags = {
+  draft_killswitch_allow_nontextnodes: false,
+  draft_segmented_entities_behavior: false
+};
+
+module.exports = DraftFeatureFlags;
+
+/***/ }),
+/* 88 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18335,15 +17794,15 @@ module.exports = ContentStateInlineStyle;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule applyEntityToContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var applyEntityToContentBlock = __webpack_require__(92);
+var applyEntityToContentBlock = __webpack_require__(89);
 
 function applyEntityToContentState(contentState, selectionState, entityKey) {
   var blockMap = contentState.getBlockMap();
@@ -18372,7 +17831,7 @@ function applyEntityToContentState(contentState, selectionState, entityKey) {
 module.exports = applyEntityToContentState;
 
 /***/ }),
-/* 92 */
+/* 89 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18385,13 +17844,13 @@ module.exports = applyEntityToContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule applyEntityToContentBlock
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var CharacterMetadata = __webpack_require__(6);
+var CharacterMetadata = __webpack_require__(9);
 
 function applyEntityToContentBlock(contentBlock, start, end, entityKey) {
   var characterList = contentBlock.getCharacterList();
@@ -18405,7 +17864,7 @@ function applyEntityToContentBlock(contentBlock, start, end, entityKey) {
 module.exports = applyEntityToContentBlock;
 
 /***/ }),
-/* 93 */
+/* 90 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18418,15 +17877,15 @@ module.exports = applyEntityToContentBlock;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getCharacterRemovalRange
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var DraftEntitySegments = __webpack_require__(94);
+var DraftEntitySegments = __webpack_require__(91);
 
-var getRangesForDraftEntity = __webpack_require__(95);
+var getRangesForDraftEntity = __webpack_require__(92);
 var invariant = __webpack_require__(1);
 
 /**
@@ -18527,7 +17986,7 @@ module.exports = getCharacterRemovalRange;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 94 */
+/* 91 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18540,7 +17999,7 @@ module.exports = getCharacterRemovalRange;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEntitySegments
- * @format
+ * @typechecks
  * 
  */
 
@@ -18632,7 +18091,7 @@ var DraftEntitySegments = {
 module.exports = DraftEntitySegments;
 
 /***/ }),
-/* 95 */
+/* 92 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18645,7 +18104,7 @@ module.exports = DraftEntitySegments;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getRangesForDraftEntity
- * @format
+ * @typechecks
  * 
  */
 
@@ -18678,7 +18137,7 @@ module.exports = getRangesForDraftEntity;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 96 */
+/* 93 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18691,213 +18150,109 @@ module.exports = getRangesForDraftEntity;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule insertFragmentIntoContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var BlockMapBuilder = __webpack_require__(19);
-var ContentBlockNode = __webpack_require__(7);
-var Immutable = __webpack_require__(2);
+var BlockMapBuilder = __webpack_require__(15);
 
-var insertIntoList = __webpack_require__(46);
+var generateRandomKey = __webpack_require__(10);
+var insertIntoList = __webpack_require__(44);
 var invariant = __webpack_require__(1);
-var randomizeBlockMapKeys = __webpack_require__(44);
 
-var List = Immutable.List;
+function insertFragmentIntoContentState(contentState, selectionState, fragment) {
+  !selectionState.isCollapsed() ? process.env.NODE_ENV !== 'production' ? invariant(false, '`insertFragment` should only be called with a collapsed selection state.') : invariant(false) : void 0;
 
+  var targetKey = selectionState.getStartKey();
+  var targetOffset = selectionState.getStartOffset();
 
-var updateExistingBlock = function updateExistingBlock(contentState, selectionState, blockMap, fragmentBlock, targetKey, targetOffset) {
-  var targetBlock = blockMap.get(targetKey);
-  var text = targetBlock.getText();
-  var chars = targetBlock.getCharacterList();
-  var finalKey = targetKey;
-  var finalOffset = targetOffset + fragmentBlock.getText().length;
+  var blockMap = contentState.getBlockMap();
 
-  var newBlock = targetBlock.merge({
-    text: text.slice(0, targetOffset) + fragmentBlock.getText() + text.slice(targetOffset),
-    characterList: insertIntoList(chars, fragmentBlock.getCharacterList(), targetOffset),
-    data: fragmentBlock.getData()
-  });
+  var fragmentSize = fragment.size;
+  var finalKey;
+  var finalOffset;
 
-  return contentState.merge({
-    blockMap: blockMap.set(targetKey, newBlock),
-    selectionBefore: selectionState,
-    selectionAfter: selectionState.merge({
-      anchorKey: finalKey,
-      anchorOffset: finalOffset,
-      focusKey: finalKey,
-      focusOffset: finalOffset,
-      isBackward: false
-    })
-  });
-};
+  if (fragmentSize === 1) {
+    var targetBlock = blockMap.get(targetKey);
+    var pastedBlock = fragment.first();
+    var text = targetBlock.getText();
+    var chars = targetBlock.getCharacterList();
 
-/**
- * Appends text/characterList from the fragment first block to
- * target block.
- */
-var updateHead = function updateHead(block, targetOffset, fragment) {
-  var text = block.getText();
-  var chars = block.getCharacterList();
-
-  // Modify head portion of block.
-  var headText = text.slice(0, targetOffset);
-  var headCharacters = chars.slice(0, targetOffset);
-  var appendToHead = fragment.first();
-
-  return block.merge({
-    text: headText + appendToHead.getText(),
-    characterList: headCharacters.concat(appendToHead.getCharacterList()),
-    type: headText ? block.getType() : appendToHead.getType(),
-    data: appendToHead.getData()
-  });
-};
-
-/**
- * Appends offset text/characterList from the target block to the last
- * fragment block.
- */
-var updateTail = function updateTail(block, targetOffset, fragment) {
-  // Modify tail portion of block.
-  var text = block.getText();
-  var chars = block.getCharacterList();
-
-  // Modify head portion of block.
-  var blockSize = text.length;
-  var tailText = text.slice(targetOffset, blockSize);
-  var tailCharacters = chars.slice(targetOffset, blockSize);
-  var prependToTail = fragment.last();
-
-  return prependToTail.merge({
-    text: prependToTail.getText() + tailText,
-    characterList: prependToTail.getCharacterList().concat(tailCharacters),
-    data: prependToTail.getData()
-  });
-};
-
-var getRootBlocks = function getRootBlocks(block, blockMap) {
-  var headKey = block.getKey();
-  var rootBlock = block;
-  var rootBlocks = [];
-
-  // sometimes the fragment head block will not be part of the blockMap itself this can happen when
-  // the fragment head is used to update the target block, however when this does not happen we need
-  // to make sure that we include it on the rootBlocks since the first block of a fragment is always a
-  // fragment root block
-  if (blockMap.get(headKey)) {
-    rootBlocks.push(headKey);
-  }
-
-  while (rootBlock && rootBlock.getNextSiblingKey()) {
-    var lastSiblingKey = rootBlock.getNextSiblingKey();
-
-    if (!lastSiblingKey) {
-      break;
-    }
-
-    rootBlocks.push(lastSiblingKey);
-    rootBlock = blockMap.get(lastSiblingKey);
-  }
-
-  return rootBlocks;
-};
-
-var updateBlockMapLinks = function updateBlockMapLinks(blockMap, originalBlockMap, targetBlock, fragmentHeadBlock) {
-  return blockMap.withMutations(function (blockMapState) {
-    var targetKey = targetBlock.getKey();
-    var headKey = fragmentHeadBlock.getKey();
-    var targetNextKey = targetBlock.getNextSiblingKey();
-    var targetParentKey = targetBlock.getParentKey();
-    var fragmentRootBlocks = getRootBlocks(fragmentHeadBlock, blockMap);
-    var lastRootFragmentBlockKey = fragmentRootBlocks[fragmentRootBlocks.length - 1];
-
-    if (blockMapState.get(headKey)) {
-      // update the fragment head when it is part of the blockMap otherwise
-      blockMapState.setIn([targetKey, 'nextSibling'], headKey);
-      blockMapState.setIn([headKey, 'prevSibling'], targetKey);
-    } else {
-      // update the target block that had the fragment head contents merged into it
-      blockMapState.setIn([targetKey, 'nextSibling'], fragmentHeadBlock.getNextSiblingKey());
-      blockMapState.setIn([fragmentHeadBlock.getNextSiblingKey(), 'prevSibling'], targetKey);
-    }
-
-    // update the last root block fragment
-    blockMapState.setIn([lastRootFragmentBlockKey, 'nextSibling'], targetNextKey);
-
-    // update the original target next block
-    if (targetNextKey) {
-      blockMapState.setIn([targetNextKey, 'prevSibling'], lastRootFragmentBlockKey);
-    }
-
-    // update fragment parent links
-    fragmentRootBlocks.forEach(function (blockKey) {
-      return blockMapState.setIn([blockKey, 'parent'], targetParentKey);
+    var newBlock = targetBlock.merge({
+      text: text.slice(0, targetOffset) + pastedBlock.getText() + text.slice(targetOffset),
+      characterList: insertIntoList(chars, pastedBlock.getCharacterList(), targetOffset),
+      data: pastedBlock.getData()
     });
 
-    // update targetBlock parent child links
-    if (targetParentKey) {
-      var targetParent = blockMap.get(targetParentKey);
-      var originalTargetParentChildKeys = targetParent.getChildKeys();
+    finalKey = targetKey;
+    finalOffset = targetOffset + pastedBlock.getText().length;
 
-      var targetBlockIndex = originalTargetParentChildKeys.indexOf(targetKey);
-      var insertionIndex = targetBlockIndex + 1;
+    return contentState.merge({
+      blockMap: blockMap.set(targetKey, newBlock),
+      selectionBefore: selectionState,
+      selectionAfter: selectionState.merge({
+        anchorKey: finalKey,
+        anchorOffset: finalOffset,
+        focusKey: finalKey,
+        focusOffset: finalOffset,
+        isBackward: false
+      })
+    });
+  }
 
-      var newChildrenKeysArray = originalTargetParentChildKeys.toArray();
-
-      // insert fragment children
-      newChildrenKeysArray.splice.apply(newChildrenKeysArray, [insertionIndex, 0].concat(fragmentRootBlocks));
-
-      blockMapState.setIn([targetParentKey, 'children'], List(newChildrenKeysArray));
-    }
-  });
-};
-
-var insertFragment = function insertFragment(contentState, selectionState, blockMap, fragment, targetKey, targetOffset) {
-  var isTreeBasedBlockMap = blockMap.first() instanceof ContentBlockNode;
   var newBlockArr = [];
-  var fragmentSize = fragment.size;
-  var target = blockMap.get(targetKey);
-  var head = fragment.first();
-  var tail = fragment.last();
-  var finalOffset = tail.getLength();
-  var finalKey = tail.getKey();
-  var shouldNotUpdateFromFragmentBlock = isTreeBasedBlockMap && (!target.getChildKeys().isEmpty() || !head.getChildKeys().isEmpty());
 
-  blockMap.forEach(function (block, blockKey) {
+  contentState.getBlockMap().forEach(function (block, blockKey) {
     if (blockKey !== targetKey) {
       newBlockArr.push(block);
       return;
     }
 
-    if (shouldNotUpdateFromFragmentBlock) {
-      newBlockArr.push(block);
-    } else {
-      newBlockArr.push(updateHead(block, targetOffset, fragment));
-    }
+    var text = block.getText();
+    var chars = block.getCharacterList();
 
-    // Insert fragment blocks after the head and before the tail.
-    fragment
-    // when we are updating the target block with the head fragment block we skip the first fragment
-    // head since its contents have already been merged with the target block otherwise we include
-    // the whole fragment
-    .slice(shouldNotUpdateFromFragmentBlock ? 0 : 1, fragmentSize - 1).forEach(function (fragmentBlock) {
-      return newBlockArr.push(fragmentBlock);
+    // Modify head portion of block.
+    var blockSize = text.length;
+    var headText = text.slice(0, targetOffset);
+    var headCharacters = chars.slice(0, targetOffset);
+    var appendToHead = fragment.first();
+
+    var modifiedHead = block.merge({
+      text: headText + appendToHead.getText(),
+      characterList: headCharacters.concat(appendToHead.getCharacterList()),
+      type: headText ? block.getType() : appendToHead.getType(),
+      data: appendToHead.getData()
     });
 
-    // update tail
-    newBlockArr.push(updateTail(block, targetOffset, fragment));
+    newBlockArr.push(modifiedHead);
+
+    // Insert fragment blocks after the head and before the tail.
+    fragment.slice(1, fragmentSize - 1).forEach(function (fragmentBlock) {
+      newBlockArr.push(fragmentBlock.set('key', generateRandomKey()));
+    });
+
+    // Modify tail portion of block.
+    var tailText = text.slice(targetOffset, blockSize);
+    var tailCharacters = chars.slice(targetOffset, blockSize);
+    var prependToTail = fragment.last();
+    finalKey = generateRandomKey();
+
+    var modifiedTail = prependToTail.merge({
+      key: finalKey,
+      text: prependToTail.getText() + tailText,
+      characterList: prependToTail.getCharacterList().concat(tailCharacters),
+      data: prependToTail.getData()
+    });
+
+    newBlockArr.push(modifiedTail);
   });
 
-  var updatedBlockMap = BlockMapBuilder.createFromArray(newBlockArr);
-
-  if (isTreeBasedBlockMap) {
-    updatedBlockMap = updateBlockMapLinks(updatedBlockMap, blockMap, target, head);
-  }
+  finalOffset = fragment.last().getLength();
 
   return contentState.merge({
-    blockMap: updatedBlockMap,
+    blockMap: BlockMapBuilder.createFromArray(newBlockArr),
     selectionBefore: selectionState,
     selectionAfter: selectionState.merge({
       anchorKey: finalKey,
@@ -18907,36 +18262,13 @@ var insertFragment = function insertFragment(contentState, selectionState, block
       isBackward: false
     })
   });
-};
-
-var insertFragmentIntoContentState = function insertFragmentIntoContentState(contentState, selectionState, fragmentBlockMap) {
-  !selectionState.isCollapsed() ? process.env.NODE_ENV !== 'production' ? invariant(false, '`insertFragment` should only be called with a collapsed selection state.') : invariant(false) : void 0;
-
-  var blockMap = contentState.getBlockMap();
-  var fragment = randomizeBlockMapKeys(fragmentBlockMap);
-  var targetKey = selectionState.getStartKey();
-  var targetOffset = selectionState.getStartOffset();
-
-  var targetBlock = blockMap.get(targetKey);
-
-  if (targetBlock instanceof ContentBlockNode) {
-    !targetBlock.getChildKeys().isEmpty() ? process.env.NODE_ENV !== 'production' ? invariant(false, '`insertFragment` should not be called when a container node is selected.') : invariant(false) : void 0;
-  }
-
-  // When we insert a fragment with a single block we simply update the target block
-  // with the contents of the inserted fragment block
-  if (fragment.size === 1) {
-    return updateExistingBlock(contentState, selectionState, blockMap, fragment.first(), targetKey, targetOffset);
-  }
-
-  return insertFragment(contentState, selectionState, blockMap, fragment, targetKey, targetOffset);
-};
+}
 
 module.exports = insertFragmentIntoContentState;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 97 */
+/* 94 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -18949,15 +18281,15 @@ module.exports = insertFragmentIntoContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule insertTextIntoContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var insertIntoList = __webpack_require__(46);
+var insertIntoList = __webpack_require__(44);
 var invariant = __webpack_require__(1);
 
 var Repeat = Immutable.Repeat;
@@ -18997,7 +18329,7 @@ module.exports = insertTextIntoContentState;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 98 */
+/* 95 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19010,13 +18342,13 @@ module.exports = insertTextIntoContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule modifyBlockForContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
 var Map = Immutable.Map;
 
@@ -19041,7 +18373,7 @@ function modifyBlockForContentState(contentState, selectionState, operation) {
 module.exports = modifyBlockForContentState;
 
 /***/ }),
-/* 99 */
+/* 96 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19054,198 +18386,14 @@ module.exports = modifyBlockForContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule removeRangeFromContentState
- * @format
  * 
  */
 
 
 
-var ContentBlockNode = __webpack_require__(7);
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var getNextDelimiterBlockKey = __webpack_require__(47);
-
-var List = Immutable.List,
-    Map = Immutable.Map;
-
-
-var transformBlock = function transformBlock(key, blockMap, func) {
-  if (!key) {
-    return;
-  }
-
-  var block = blockMap.get(key);
-
-  if (!block) {
-    return;
-  }
-
-  blockMap.set(key, func(block));
-};
-
-/**
- * Ancestors needs to be preserved when there are non selected
- * children to make sure we do not leave any orphans behind
- */
-var getAncestorsKeys = function getAncestorsKeys(blockKey, blockMap) {
-  var parents = [];
-
-  if (!blockKey) {
-    return parents;
-  }
-
-  var blockNode = blockMap.get(blockKey);
-  while (blockNode && blockNode.getParentKey()) {
-    var parentKey = blockNode.getParentKey();
-    if (parentKey) {
-      parents.push(parentKey);
-    }
-    blockNode = parentKey ? blockMap.get(parentKey) : null;
-  }
-
-  return parents;
-};
-
-/**
- * Get all next delimiter keys until we hit a root delimiter and return
- * an array of key references
- */
-var getNextDelimitersBlockKeys = function getNextDelimitersBlockKeys(block, blockMap) {
-  var nextDelimiters = [];
-
-  if (!block) {
-    return nextDelimiters;
-  }
-
-  var nextDelimiter = getNextDelimiterBlockKey(block, blockMap);
-  while (nextDelimiter && blockMap.get(nextDelimiter)) {
-    var _block = blockMap.get(nextDelimiter);
-    nextDelimiters.push(nextDelimiter);
-
-    // we do not need to keep checking all root node siblings, just the first occurance
-    nextDelimiter = _block.getParentKey() ? getNextDelimiterBlockKey(_block, blockMap) : null;
-  }
-
-  return nextDelimiters;
-};
-
-var getNextValidSibling = function getNextValidSibling(block, blockMap, originalBlockMap) {
-  if (!block) {
-    return null;
-  }
-
-  // note that we need to make sure we refer to the original block since this
-  // function is called within a withMutations
-  var nextValidSiblingKey = originalBlockMap.get(block.getKey()).getNextSiblingKey();
-
-  while (nextValidSiblingKey && !blockMap.get(nextValidSiblingKey)) {
-    nextValidSiblingKey = originalBlockMap.get(nextValidSiblingKey).getNextSiblingKey() || null;
-  }
-
-  return nextValidSiblingKey;
-};
-
-var getPrevValidSibling = function getPrevValidSibling(block, blockMap, originalBlockMap) {
-  if (!block) {
-    return null;
-  }
-
-  // note that we need to make sure we refer to the original block since this
-  // function is called within a withMutations
-  var prevValidSiblingKey = originalBlockMap.get(block.getKey()).getPrevSiblingKey();
-
-  while (prevValidSiblingKey && !blockMap.get(prevValidSiblingKey)) {
-    prevValidSiblingKey = originalBlockMap.get(prevValidSiblingKey).getPrevSiblingKey() || null;
-  }
-
-  return prevValidSiblingKey;
-};
-
-var updateBlockMapLinks = function updateBlockMapLinks(blockMap, startBlock, endBlock, originalBlockMap) {
-  return blockMap.withMutations(function (blocks) {
-    // update start block if its retained
-    transformBlock(startBlock.getKey(), blocks, function (block) {
-      return block.merge({
-        nextSibling: getNextValidSibling(startBlock, blocks, originalBlockMap),
-        prevSibling: getPrevValidSibling(startBlock, blocks, originalBlockMap)
-      });
-    });
-
-    // update endblock if its retained
-    transformBlock(endBlock.getKey(), blocks, function (block) {
-      return block.merge({
-        nextSibling: getNextValidSibling(endBlock, blocks, originalBlockMap),
-        prevSibling: getPrevValidSibling(endBlock, blocks, originalBlockMap)
-      });
-    });
-
-    // update start block parent ancestors
-    getAncestorsKeys(startBlock.getKey(), originalBlockMap).forEach(function (parentKey) {
-      return transformBlock(parentKey, blocks, function (block) {
-        return block.merge({
-          children: block.getChildKeys().filter(function (key) {
-            return blocks.get(key);
-          }),
-          nextSibling: getNextValidSibling(block, blocks, originalBlockMap),
-          prevSibling: getPrevValidSibling(block, blocks, originalBlockMap)
-        });
-      });
-    });
-
-    // update start block next - can only happen if startBlock == endBlock
-    transformBlock(startBlock.getNextSiblingKey(), blocks, function (block) {
-      return block.merge({
-        prevSibling: startBlock.getPrevSiblingKey()
-      });
-    });
-
-    // update start block prev
-    transformBlock(startBlock.getPrevSiblingKey(), blocks, function (block) {
-      return block.merge({
-        nextSibling: getNextValidSibling(startBlock, blocks, originalBlockMap)
-      });
-    });
-
-    // update end block next
-    transformBlock(endBlock.getNextSiblingKey(), blocks, function (block) {
-      return block.merge({
-        prevSibling: getPrevValidSibling(endBlock, blocks, originalBlockMap)
-      });
-    });
-
-    // update end block prev
-    transformBlock(endBlock.getPrevSiblingKey(), blocks, function (block) {
-      return block.merge({
-        nextSibling: endBlock.getNextSiblingKey()
-      });
-    });
-
-    // update end block parent ancestors
-    getAncestorsKeys(endBlock.getKey(), originalBlockMap).forEach(function (parentKey) {
-      transformBlock(parentKey, blocks, function (block) {
-        return block.merge({
-          children: block.getChildKeys().filter(function (key) {
-            return blocks.get(key);
-          }),
-          nextSibling: getNextValidSibling(block, blocks, originalBlockMap),
-          prevSibling: getPrevValidSibling(block, blocks, originalBlockMap)
-        });
-      });
-    });
-
-    // update next delimiters all the way to a root delimiter
-    getNextDelimitersBlockKeys(endBlock, originalBlockMap).forEach(function (delimiterKey) {
-      return transformBlock(delimiterKey, blocks, function (block) {
-        return block.merge({
-          nextSibling: getNextValidSibling(block, blocks, originalBlockMap),
-          prevSibling: getPrevValidSibling(block, blocks, originalBlockMap)
-        });
-      });
-    });
-  });
-};
-
-var removeRangeFromContentState = function removeRangeFromContentState(contentState, selectionState) {
+function removeRangeFromContentState(contentState, selectionState) {
   if (selectionState.isCollapsed()) {
     return contentState;
   }
@@ -19258,32 +18406,7 @@ var removeRangeFromContentState = function removeRangeFromContentState(contentSt
 
   var startBlock = blockMap.get(startKey);
   var endBlock = blockMap.get(endKey);
-
-  // we assume that ContentBlockNode and ContentBlocks are not mixed together
-  var isExperimentalTreeBlock = startBlock instanceof ContentBlockNode;
-
-  // used to retain blocks that should not be deleted to avoid orphan children
-  var parentAncestors = [];
-
-  if (isExperimentalTreeBlock) {
-    var endBlockchildrenKeys = endBlock.getChildKeys();
-    var endBlockAncestors = getAncestorsKeys(endKey, blockMap);
-
-    // endBlock has unselected sibblings so we can not remove its ancestors parents
-    if (endBlock.getNextSiblingKey()) {
-      parentAncestors = parentAncestors.concat(endBlockAncestors);
-    }
-
-    // endBlock has children so can not remove this block or any of its ancestors
-    if (!endBlockchildrenKeys.isEmpty()) {
-      parentAncestors = parentAncestors.concat(endBlockAncestors.concat([endKey]));
-    }
-
-    // we need to retain all ancestors of the next delimiter block
-    parentAncestors = parentAncestors.concat(getAncestorsKeys(getNextDelimiterBlockKey(endBlock, blockMap), blockMap));
-  }
-
-  var characterList = void 0;
+  var characterList;
 
   if (startBlock === endBlock) {
     characterList = removeFromList(startBlock.getCharacterList(), startOffset, endOffset);
@@ -19300,22 +18423,16 @@ var removeRangeFromContentState = function removeRangeFromContentState(contentSt
     return k === startKey;
   }).takeUntil(function (_, k) {
     return k === endKey;
-  }).filter(function (_, k) {
-    return parentAncestors.indexOf(k) === -1;
-  }).concat(Map([[endKey, null]])).map(function (_, k) {
+  }).concat(Immutable.Map([[endKey, null]])).map(function (_, k) {
     return k === startKey ? modifiedStart : null;
   });
 
-  var updatedBlockMap = blockMap.merge(newBlocks).filter(function (block) {
+  blockMap = blockMap.merge(newBlocks).filter(function (block) {
     return !!block;
   });
 
-  if (isExperimentalTreeBlock) {
-    updatedBlockMap = updateBlockMapLinks(updatedBlockMap, startBlock, endBlock, blockMap);
-  }
-
   return contentState.merge({
-    blockMap: updatedBlockMap,
+    blockMap: blockMap,
     selectionBefore: selectionState,
     selectionAfter: selectionState.merge({
       anchorKey: startKey,
@@ -19325,13 +18442,13 @@ var removeRangeFromContentState = function removeRangeFromContentState(contentSt
       isBackward: false
     })
   });
-};
+}
 
 /**
  * Maintain persistence for target list when removing characters on the
  * head and tail of the character list.
  */
-var removeFromList = function removeFromList(targetList, startOffset, endOffset) {
+function removeFromList(targetList, startOffset, endOffset) {
   if (startOffset === 0) {
     while (startOffset < endOffset) {
       targetList = targetList.shift();
@@ -19348,12 +18465,12 @@ var removeFromList = function removeFromList(targetList, startOffset, endOffset)
     targetList = head.concat(tail).toList();
   }
   return targetList;
-};
+}
 
 module.exports = removeRangeFromContentState;
 
 /***/ }),
-/* 100 */
+/* 97 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19366,93 +18483,37 @@ module.exports = removeRangeFromContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule splitBlockInContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var ContentBlockNode = __webpack_require__(7);
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
-var generateRandomKey = __webpack_require__(12);
+var generateRandomKey = __webpack_require__(10);
 var invariant = __webpack_require__(1);
 
-var List = Immutable.List,
-    Map = Immutable.Map;
+var Map = Immutable.Map;
 
 
-var transformBlock = function transformBlock(key, blockMap, func) {
-  if (!key) {
-    return;
-  }
-
-  var block = blockMap.get(key);
-
-  if (!block) {
-    return;
-  }
-
-  blockMap.set(key, func(block));
-};
-
-var updateBlockMapLinks = function updateBlockMapLinks(blockMap, originalBlock, belowBlock) {
-  return blockMap.withMutations(function (blocks) {
-    var originalBlockKey = originalBlock.getKey();
-    var belowBlockKey = belowBlock.getKey();
-
-    // update block parent
-    transformBlock(originalBlock.getParentKey(), blocks, function (block) {
-      var parentChildrenList = block.getChildKeys();
-      var insertionIndex = parentChildrenList.indexOf(originalBlockKey) + 1;
-      var newChildrenArray = parentChildrenList.toArray();
-
-      newChildrenArray.splice(insertionIndex, 0, belowBlockKey);
-
-      return block.merge({
-        children: List(newChildrenArray)
-      });
-    });
-
-    // update original next block
-    transformBlock(originalBlock.getNextSiblingKey(), blocks, function (block) {
-      return block.merge({
-        prevSibling: belowBlockKey
-      });
-    });
-
-    // update original block
-    transformBlock(originalBlockKey, blocks, function (block) {
-      return block.merge({
-        nextSibling: belowBlockKey
-      });
-    });
-
-    // update below block
-    transformBlock(belowBlockKey, blocks, function (block) {
-      return block.merge({
-        prevSibling: originalBlockKey
-      });
-    });
-  });
-};
-
-var splitBlockInContentState = function splitBlockInContentState(contentState, selectionState) {
+function splitBlockInContentState(contentState, selectionState) {
   !selectionState.isCollapsed() ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Selection range must be collapsed.') : invariant(false) : void 0;
 
   var key = selectionState.getAnchorKey();
   var offset = selectionState.getAnchorOffset();
   var blockMap = contentState.getBlockMap();
   var blockToSplit = blockMap.get(key);
+
   var text = blockToSplit.getText();
   var chars = blockToSplit.getCharacterList();
-  var keyBelow = generateRandomKey();
-  var isExperimentalTreeBlock = blockToSplit instanceof ContentBlockNode;
 
   var blockAbove = blockToSplit.merge({
     text: text.slice(0, offset),
     characterList: chars.slice(0, offset)
   });
+
+  var keyBelow = generateRandomKey();
   var blockBelow = blockAbove.merge({
     key: keyBelow,
     text: text.slice(offset),
@@ -19466,13 +18527,7 @@ var splitBlockInContentState = function splitBlockInContentState(contentState, s
   var blocksAfter = blockMap.toSeq().skipUntil(function (v) {
     return v === blockToSplit;
   }).rest();
-  var newBlocks = blocksBefore.concat([[key, blockAbove], [keyBelow, blockBelow]], blocksAfter).toOrderedMap();
-
-  if (isExperimentalTreeBlock) {
-    !blockToSplit.getChildKeys().isEmpty() ? process.env.NODE_ENV !== 'production' ? invariant(false, 'ContentBlockNode must not have children') : invariant(false) : void 0;
-
-    newBlocks = updateBlockMapLinks(newBlocks, blockAbove, blockBelow);
-  }
+  var newBlocks = blocksBefore.concat([[blockAbove.getKey(), blockAbove], [blockBelow.getKey(), blockBelow]], blocksAfter).toOrderedMap();
 
   return contentState.merge({
     blockMap: newBlocks,
@@ -19485,13 +18540,13 @@ var splitBlockInContentState = function splitBlockInContentState(contentState, s
       isBackward: false
     })
   });
-};
+}
 
 module.exports = splitBlockInContentState;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 101 */
+/* 98 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19504,16 +18559,16 @@ module.exports = splitBlockInContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule EditorBidiService
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var Immutable = __webpack_require__(2);
-var UnicodeBidiService = __webpack_require__(102);
+var Immutable = __webpack_require__(3);
+var UnicodeBidiService = __webpack_require__(99);
 
-var nullthrows = __webpack_require__(10);
+var nullthrows = __webpack_require__(6);
 
 var OrderedMap = Immutable.OrderedMap;
 
@@ -19545,7 +18600,7 @@ var EditorBidiService = {
 module.exports = EditorBidiService;
 
 /***/ }),
-/* 102 */
+/* 99 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19593,8 +18648,8 @@ module.exports = EditorBidiService;
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var UnicodeBidi = __webpack_require__(50);
-var UnicodeBidiDirection = __webpack_require__(35);
+var UnicodeBidi = __webpack_require__(47);
+var UnicodeBidiDirection = __webpack_require__(33);
 
 var invariant = __webpack_require__(1);
 
@@ -19650,7 +18705,7 @@ module.exports = UnicodeBidiService;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 103 */
+/* 100 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19663,194 +18718,59 @@ module.exports = UnicodeBidiService;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule moveBlockInContentState
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var ContentBlockNode = __webpack_require__(7);
-var Immutable = __webpack_require__(2);
-
-var getNextDelimiterBlockKey = __webpack_require__(47);
 var invariant = __webpack_require__(1);
 
-var OrderedMap = Immutable.OrderedMap,
-    List = Immutable.List;
+function moveBlockInContentState(contentState, blockToBeMoved, targetBlock, insertionMode) {
+  !(blockToBeMoved.getKey() !== targetBlock.getKey()) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Block cannot be moved next to itself.') : invariant(false) : void 0;
 
-
-var transformBlock = function transformBlock(key, blockMap, func) {
-  if (!key) {
-    return;
-  }
-
-  var block = blockMap.get(key);
-
-  if (!block) {
-    return;
-  }
-
-  blockMap.set(key, func(block));
-};
-
-var updateBlockMapLinks = function updateBlockMapLinks(blockMap, originalBlockToBeMoved, originalTargetBlock, insertionMode, isExperimentalTreeBlock) {
-  if (!isExperimentalTreeBlock) {
-    return blockMap;
-  }
-  // possible values of 'insertionMode' are: 'after', 'before'
-  var isInsertedAfterTarget = insertionMode === 'after';
-
-  var originalBlockKey = originalBlockToBeMoved.getKey();
-  var originalTargetKey = originalTargetBlock.getKey();
-  var originalParentKey = originalBlockToBeMoved.getParentKey();
-  var originalNextSiblingKey = originalBlockToBeMoved.getNextSiblingKey();
-  var originalPrevSiblingKey = originalBlockToBeMoved.getPrevSiblingKey();
-  var newParentKey = originalTargetBlock.getParentKey();
-  var newNextSiblingKey = isInsertedAfterTarget ? originalTargetBlock.getNextSiblingKey() : originalTargetKey;
-  var newPrevSiblingKey = isInsertedAfterTarget ? originalTargetKey : originalTargetBlock.getPrevSiblingKey();
-
-  return blockMap.withMutations(function (blocks) {
-    // update old parent
-    transformBlock(originalParentKey, blocks, function (block) {
-      var parentChildrenList = block.getChildKeys();
-      return block.merge({
-        children: parentChildrenList['delete'](parentChildrenList.indexOf(originalBlockKey))
-      });
-    });
-
-    // update old prev
-    transformBlock(originalPrevSiblingKey, blocks, function (block) {
-      return block.merge({
-        nextSibling: originalNextSiblingKey
-      });
-    });
-
-    // update old next
-    transformBlock(originalNextSiblingKey, blocks, function (block) {
-      return block.merge({
-        prevSibling: originalPrevSiblingKey
-      });
-    });
-
-    // update new next
-    transformBlock(newNextSiblingKey, blocks, function (block) {
-      return block.merge({
-        prevSibling: originalBlockKey
-      });
-    });
-
-    // update new prev
-    transformBlock(newPrevSiblingKey, blocks, function (block) {
-      return block.merge({
-        nextSibling: originalBlockKey
-      });
-    });
-
-    // update new parent
-    transformBlock(newParentKey, blocks, function (block) {
-      var newParentChildrenList = block.getChildKeys();
-      var targetBlockIndex = newParentChildrenList.indexOf(originalTargetKey);
-
-      var insertionIndex = isInsertedAfterTarget ? targetBlockIndex + 1 : targetBlockIndex !== 0 ? targetBlockIndex - 1 : 0;
-
-      var newChildrenArray = newParentChildrenList.toArray();
-      newChildrenArray.splice(insertionIndex, 0, originalBlockKey);
-
-      return block.merge({
-        children: List(newChildrenArray)
-      });
-    });
-
-    // update block
-    transformBlock(originalBlockKey, blocks, function (block) {
-      return block.merge({
-        nextSibling: newNextSiblingKey,
-        prevSibling: newPrevSiblingKey,
-        parent: newParentKey
-      });
-    });
-  });
-};
-
-var moveBlockInContentState = function moveBlockInContentState(contentState, blockToBeMoved, targetBlock, insertionMode) {
   !(insertionMode !== 'replace') ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Replacing blocks is not supported.') : invariant(false) : void 0;
 
   var targetKey = targetBlock.getKey();
-  var blockKey = blockToBeMoved.getKey();
-
-  !(blockKey !== targetKey) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Block cannot be moved next to itself.') : invariant(false) : void 0;
+  var blockBefore = contentState.getBlockBefore(targetKey);
+  var blockAfter = contentState.getBlockAfter(targetKey);
 
   var blockMap = contentState.getBlockMap();
-  var isExperimentalTreeBlock = blockToBeMoved instanceof ContentBlockNode;
-
-  var blocksToBeMoved = [blockToBeMoved];
-  var blockMapWithoutBlocksToBeMoved = blockMap['delete'](blockKey);
-
-  if (isExperimentalTreeBlock) {
-    blocksToBeMoved = [];
-    blockMapWithoutBlocksToBeMoved = blockMap.withMutations(function (blocks) {
-      var nextSiblingKey = blockToBeMoved.getNextSiblingKey();
-      var nextDelimiterBlockKey = getNextDelimiterBlockKey(blockToBeMoved, blocks);
-
-      blocks.toSeq().skipUntil(function (block) {
-        return block.getKey() === blockKey;
-      }).takeWhile(function (block) {
-        var key = block.getKey();
-        var isBlockToBeMoved = key === blockKey;
-        var hasNextSiblingAndIsNotNextSibling = nextSiblingKey && key !== nextSiblingKey;
-        var doesNotHaveNextSiblingAndIsNotDelimiter = !nextSiblingKey && block.getParentKey() && (!nextDelimiterBlockKey || key !== nextDelimiterBlockKey);
-
-        return !!(isBlockToBeMoved || hasNextSiblingAndIsNotNextSibling || doesNotHaveNextSiblingAndIsNotDelimiter);
-      }).forEach(function (block) {
-        blocksToBeMoved.push(block);
-        blocks['delete'](block.getKey());
-      });
-    });
-  }
-
-  var blocksBefore = blockMapWithoutBlocksToBeMoved.toSeq().takeUntil(function (v) {
+  var blockMapWithoutBlockToBeMoved = blockMap['delete'](blockToBeMoved.getKey());
+  var blocksBefore = blockMapWithoutBlockToBeMoved.toSeq().takeUntil(function (v) {
     return v === targetBlock;
   });
-
-  var blocksAfter = blockMapWithoutBlocksToBeMoved.toSeq().skipUntil(function (v) {
+  var blocksAfter = blockMapWithoutBlockToBeMoved.toSeq().skipUntil(function (v) {
     return v === targetBlock;
   }).skip(1);
 
-  var slicedBlocks = blocksToBeMoved.map(function (block) {
-    return [block.getKey(), block];
-  });
-
-  var newBlocks = OrderedMap();
+  var newBlocks = void 0;
 
   if (insertionMode === 'before') {
-    var blockBefore = contentState.getBlockBefore(targetKey);
-
     !(!blockBefore || blockBefore.getKey() !== blockToBeMoved.getKey()) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Block cannot be moved next to itself.') : invariant(false) : void 0;
 
-    newBlocks = blocksBefore.concat([].concat(slicedBlocks, [[targetKey, targetBlock]]), blocksAfter).toOrderedMap();
+    newBlocks = blocksBefore.concat([[blockToBeMoved.getKey(), blockToBeMoved], [targetBlock.getKey(), targetBlock]], blocksAfter).toOrderedMap();
   } else if (insertionMode === 'after') {
-    var blockAfter = contentState.getBlockAfter(targetKey);
+    !(!blockAfter || blockAfter.getKey() !== blockToBeMoved.getKey()) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Block cannot be moved next to itself.') : invariant(false) : void 0;
 
-    !(!blockAfter || blockAfter.getKey() !== blockKey) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Block cannot be moved next to itself.') : invariant(false) : void 0;
-
-    newBlocks = blocksBefore.concat([[targetKey, targetBlock]].concat(slicedBlocks), blocksAfter).toOrderedMap();
+    newBlocks = blocksBefore.concat([[targetBlock.getKey(), targetBlock], [blockToBeMoved.getKey(), blockToBeMoved]], blocksAfter).toOrderedMap();
   }
 
   return contentState.merge({
-    blockMap: updateBlockMapLinks(newBlocks, blockToBeMoved, targetBlock, insertionMode, isExperimentalTreeBlock),
+    blockMap: newBlocks,
     selectionBefore: contentState.getSelectionAfter(),
     selectionAfter: contentState.getSelectionAfter().merge({
-      anchorKey: blockKey,
-      focusKey: blockKey
+      anchorKey: blockToBeMoved.getKey(),
+      focusKey: blockToBeMoved.getKey()
     })
   });
-};
+}
 
 module.exports = moveBlockInContentState;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 104 */
+/* 101 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19863,7 +18783,7 @@ module.exports = moveBlockInContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule CompositeDraftDecorator
- * @format
+ * @typechecks
  * 
  */
 
@@ -19871,7 +18791,7 @@ module.exports = moveBlockInContentState;
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var Immutable = __webpack_require__(2);
+var Immutable = __webpack_require__(3);
 
 var List = Immutable.List;
 
@@ -19970,7 +18890,7 @@ function occupySlice(targetArr, start, end, componentKey) {
 module.exports = CompositeDraftDecorator;
 
 /***/ }),
-/* 105 */
+/* 102 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -19983,14 +18903,14 @@ module.exports = CompositeDraftDecorator;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditor.react
- * @format
+ * @typechecks
  * 
  * @preventMunge
  */
 
 
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
@@ -20000,27 +18920,27 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var DefaultDraftBlockRenderMap = __webpack_require__(36);
-var DefaultDraftInlineStyle = __webpack_require__(51);
-var DraftEditorCompositionHandler = __webpack_require__(106);
-var DraftEditorContents = __webpack_require__(107);
-var DraftEditorDragHandler = __webpack_require__(132);
-var DraftEditorEditHandler = __webpack_require__(135);
-var DraftEditorPlaceholder = __webpack_require__(168);
-var EditorState = __webpack_require__(3);
-var React = __webpack_require__(8);
-var ReactDOM = __webpack_require__(22);
-var Scroll = __webpack_require__(60);
-var Style = __webpack_require__(39);
+var DefaultDraftBlockRenderMap = __webpack_require__(34);
+var DefaultDraftInlineStyle = __webpack_require__(48);
+var DraftEditorCompositionHandler = __webpack_require__(103);
+var DraftEditorContents = __webpack_require__(104);
+var DraftEditorDragHandler = __webpack_require__(128);
+var DraftEditorEditHandler = __webpack_require__(131);
+var DraftEditorPlaceholder = __webpack_require__(164);
+var EditorState = __webpack_require__(2);
+var React = __webpack_require__(7);
+var ReactDOM = __webpack_require__(18);
+var Scroll = __webpack_require__(57);
+var Style = __webpack_require__(37);
 var UserAgent = __webpack_require__(11);
 
-var cx = __webpack_require__(18);
-var emptyFunction = __webpack_require__(9);
-var generateRandomKey = __webpack_require__(12);
-var getDefaultKeyBinding = __webpack_require__(73);
-var getScrollPosition = __webpack_require__(40);
+var cx = __webpack_require__(17);
+var emptyFunction = __webpack_require__(8);
+var generateRandomKey = __webpack_require__(10);
+var getDefaultKeyBinding = __webpack_require__(70);
+var getScrollPosition = __webpack_require__(38);
 var invariant = __webpack_require__(1);
-var nullthrows = __webpack_require__(10);
+var nullthrows = __webpack_require__(6);
 
 var isIE = UserAgent.isBrowser('IE');
 
@@ -20031,11 +18951,11 @@ var allowSpellCheck = !isIE;
 // Define a set of handler objects to correspond to each possible `mode`
 // of editor behavior.
 var handlerMap = {
-  edit: DraftEditorEditHandler,
-  composite: DraftEditorCompositionHandler,
-  drag: DraftEditorDragHandler,
-  cut: null,
-  render: null
+  'edit': DraftEditorEditHandler,
+  'composite': DraftEditorCompositionHandler,
+  'drag': DraftEditorDragHandler,
+  'cut': null,
+  'render': null
 };
 
 /**
@@ -20050,87 +18970,6 @@ var DraftEditor = function (_React$Component) {
     _classCallCheck(this, DraftEditor);
 
     var _this = _possibleConstructorReturn(this, _React$Component.call(this, props));
-
-    _this.focus = function (scrollPosition) {
-      var editorState = _this.props.editorState;
-
-      var alreadyHasFocus = editorState.getSelection().getHasFocus();
-      var editorNode = ReactDOM.findDOMNode(_this.editor);
-
-      if (!editorNode) {
-        // once in a while people call 'focus' in a setTimeout, and the node has
-        // been deleted, so it can be null in that case.
-        return;
-      }
-
-      var scrollParent = Style.getScrollParent(editorNode);
-
-      var _ref = scrollPosition || getScrollPosition(scrollParent),
-          x = _ref.x,
-          y = _ref.y;
-
-      !(editorNode instanceof HTMLElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'editorNode is not an HTMLElement') : invariant(false) : void 0;
-      editorNode.focus();
-
-      // Restore scroll position
-      if (scrollParent === window) {
-        window.scrollTo(x, y);
-      } else {
-        Scroll.setTop(scrollParent, y);
-      }
-
-      // On Chrome and Safari, calling focus on contenteditable focuses the
-      // cursor at the first character. This is something you don't expect when
-      // you're clicking on an input element but not directly on a character.
-      // Put the cursor back where it was before the blur.
-      if (!alreadyHasFocus) {
-        _this.update(EditorState.forceSelection(editorState, editorState.getSelection()));
-      }
-    };
-
-    _this.blur = function () {
-      var editorNode = ReactDOM.findDOMNode(_this.editor);
-      !(editorNode instanceof HTMLElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'editorNode is not an HTMLElement') : invariant(false) : void 0;
-      editorNode.blur();
-    };
-
-    _this.setMode = function (mode) {
-      _this._handler = handlerMap[mode];
-    };
-
-    _this.exitCurrentMode = function () {
-      _this.setMode('edit');
-    };
-
-    _this.restoreEditorDOM = function (scrollPosition) {
-      _this.setState({ contentsKey: _this.state.contentsKey + 1 }, function () {
-        _this.focus(scrollPosition);
-      });
-    };
-
-    _this.setClipboard = function (clipboard) {
-      _this._clipboard = clipboard;
-    };
-
-    _this.getClipboard = function () {
-      return _this._clipboard;
-    };
-
-    _this.update = function (editorState) {
-      _this._latestEditorState = editorState;
-      _this.props.onChange(editorState);
-    };
-
-    _this.onDragEnter = function () {
-      _this._dragCount++;
-    };
-
-    _this.onDragLeave = function () {
-      _this._dragCount--;
-      if (_this._dragCount === 0) {
-        _this.exitCurrentMode();
-      }
-    };
 
     _this._blockSelectEvents = false;
     _this._clipboard = null;
@@ -20162,11 +19001,22 @@ var DraftEditor = function (_React$Component) {
     _this._onPaste = _this._buildHandler('onPaste');
     _this._onSelect = _this._buildHandler('onSelect');
 
+    // Manual binding for public and internal methods.
+    _this.focus = _this._focus.bind(_this);
+    _this.blur = _this._blur.bind(_this);
+    _this.setMode = _this._setMode.bind(_this);
+    _this.exitCurrentMode = _this._exitCurrentMode.bind(_this);
+    _this.restoreEditorDOM = _this._restoreEditorDOM.bind(_this);
+    _this.setClipboard = _this._setClipboard.bind(_this);
+    _this.getClipboard = _this._getClipboard.bind(_this);
     _this.getEditorKey = function () {
       return _this._editorKey;
     };
+    _this.update = _this._update.bind(_this);
+    _this.onDragEnter = _this._onDragEnter.bind(_this);
+    _this.onDragLeave = _this._onDragLeave.bind(_this);
 
-    // See `restoreEditorDOM()`.
+    // See `_restoreEditorDOM()`.
     _this.state = { contentsKey: 0 };
     return _this;
   }
@@ -20200,32 +19050,26 @@ var DraftEditor = function (_React$Component) {
 
   DraftEditor.prototype._renderPlaceholder = function _renderPlaceholder() {
     if (this._showPlaceholder()) {
-      var placeHolderProps = {
-        text: nullthrows(this.props.placeholder),
-        editorState: this.props.editorState,
-        textAlignment: this.props.textAlignment,
-        accessibilityID: this._placeholderAccessibilityID
-      };
-
-      return React.createElement(DraftEditorPlaceholder, placeHolderProps);
+      return (
+        /* $FlowFixMe(>=0.53.0 site=www,mobile) This comment suppresses an
+         * error when upgrading Flow's support for React. Common errors found
+         * when upgrading Flow's React support are documented at
+         * https://fburl.com/eq7bs81w */
+        React.createElement(DraftEditorPlaceholder, {
+          text: nullthrows(this.props.placeholder),
+          editorState: this.props.editorState,
+          textAlignment: this.props.textAlignment,
+          accessibilityID: this._placeholderAccessibilityID
+        })
+      );
     }
     return null;
   };
 
   DraftEditor.prototype.render = function render() {
-    var _this3 = this;
-
     var _props = this.props,
-        blockRenderMap = _props.blockRenderMap,
-        blockRendererFn = _props.blockRendererFn,
-        blockStyleFn = _props.blockStyleFn,
-        customStyleFn = _props.customStyleFn,
-        customStyleMap = _props.customStyleMap,
-        editorState = _props.editorState,
         readOnly = _props.readOnly,
-        textAlignment = _props.textAlignment,
-        textDirectionality = _props.textDirectionality;
-
+        textAlignment = _props.textAlignment;
 
     var rootClass = cx({
       'DraftEditor/root': true,
@@ -20248,18 +19092,6 @@ var DraftEditor = function (_React$Component) {
     var ariaRole = this.props.role || 'textbox';
     var ariaExpanded = ariaRole === 'combobox' ? !!this.props.ariaExpanded : null;
 
-    var editorContentsProps = {
-      blockRenderMap: blockRenderMap,
-      blockRendererFn: blockRendererFn,
-      blockStyleFn: blockStyleFn,
-      customStyleMap: _extends({}, DefaultDraftInlineStyle, customStyleMap),
-      customStyleFn: customStyleFn,
-      editorKey: this._editorKey,
-      editorState: editorState,
-      key: 'contents' + this.state.contentsKey,
-      textDirectionality: textDirectionality
-    };
-
     return React.createElement(
       'div',
       { className: rootClass },
@@ -20268,19 +19100,16 @@ var DraftEditor = function (_React$Component) {
         'div',
         {
           className: cx('DraftEditor/editorContainer'),
-          ref: function ref(_ref3) {
-            return _this3.editorContainer = _ref3;
-          } },
+          ref: 'editorContainer' },
         React.createElement(
           'div',
           {
             'aria-activedescendant': readOnly ? null : this.props.ariaActiveDescendantID,
             'aria-autocomplete': readOnly ? null : this.props.ariaAutoComplete,
             'aria-controls': readOnly ? null : this.props.ariaControls,
-            'aria-describedby': this.props.ariaDescribedBy || this._placeholderAccessibilityID,
+            'aria-describedby': this._showPlaceholder() ? this._placeholderAccessibilityID : null,
             'aria-expanded': readOnly ? null : ariaExpanded,
             'aria-label': this.props.ariaLabel,
-            'aria-labelledby': this.props.ariaLabelledBy,
             'aria-multiline': this.props.ariaMultiline,
             autoCapitalize: this.props.autoCapitalize,
             autoComplete: this.props.autoComplete,
@@ -20290,7 +19119,7 @@ var DraftEditor = function (_React$Component) {
               // that Draft doesn't expect (ex: adding <font> tags inside
               // DraftEditorLeaf spans) and causes problems. We add notranslate
               // here which makes its autotranslation skip over this subtree.
-              notranslate: !readOnly,
+              'notranslate': !readOnly,
               'public/DraftEditor/content': true
             }),
             contentEditable: !readOnly,
@@ -20315,15 +19144,23 @@ var DraftEditor = function (_React$Component) {
             onMouseUp: this._onMouseUp,
             onPaste: this._onPaste,
             onSelect: this._onSelect,
-            ref: function ref(_ref2) {
-              return _this3.editor = _ref2;
-            },
+            ref: 'editor',
             role: readOnly ? null : ariaRole,
             spellCheck: allowSpellCheck && this.props.spellCheck,
             style: contentStyle,
             suppressContentEditableWarning: true,
             tabIndex: this.props.tabIndex },
-          React.createElement(DraftEditorContents, editorContentsProps)
+          React.createElement(DraftEditorContents, {
+            blockRenderMap: this.props.blockRenderMap,
+            blockRendererFn: this.props.blockRendererFn,
+            blockStyleFn: this.props.blockStyleFn,
+            customStyleMap: _extends({}, DefaultDraftInlineStyle, this.props.customStyleMap),
+            customStyleFn: this.props.customStyleFn,
+            editorKey: this._editorKey,
+            editorState: this.props.editorState,
+            key: 'contents' + this.state.contentsKey,
+            textDirectionality: this.props.textDirectionality
+          })
         )
       )
     );
@@ -20374,6 +19211,49 @@ var DraftEditor = function (_React$Component) {
    */
 
 
+  DraftEditor.prototype._focus = function _focus(scrollPosition) {
+    var editorState = this.props.editorState;
+
+    var alreadyHasFocus = editorState.getSelection().getHasFocus();
+    var editorNode = ReactDOM.findDOMNode(this.refs.editor);
+
+    if (!editorNode) {
+      // once in a while people call 'focus' in a setTimeout, and the node has
+      // been deleted, so it can be null in that case.
+      return;
+    }
+
+    var scrollParent = Style.getScrollParent(editorNode);
+
+    var _ref = scrollPosition || getScrollPosition(scrollParent),
+        x = _ref.x,
+        y = _ref.y;
+
+    !(editorNode instanceof HTMLElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'editorNode is not an HTMLElement') : invariant(false) : void 0;
+    editorNode.focus();
+
+    // Restore scroll position
+    if (scrollParent === window) {
+      window.scrollTo(x, y);
+    } else {
+      Scroll.setTop(scrollParent, y);
+    }
+
+    // On Chrome and Safari, calling focus on contenteditable focuses the
+    // cursor at the first character. This is something you don't expect when
+    // you're clicking on an input element but not directly on a character.
+    // Put the cursor back where it was before the blur.
+    if (!alreadyHasFocus) {
+      this.update(EditorState.forceSelection(editorState, editorState.getSelection()));
+    }
+  };
+
+  DraftEditor.prototype._blur = function _blur() {
+    var editorNode = ReactDOM.findDOMNode(this.refs.editor);
+    !(editorNode instanceof HTMLElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'editorNode is not an HTMLElement') : invariant(false) : void 0;
+    editorNode.blur();
+  };
+
   /**
    * Used via `this.setMode(...)`.
    *
@@ -20382,6 +19262,14 @@ var DraftEditor = function (_React$Component) {
    * the active mode.
    */
 
+
+  DraftEditor.prototype._setMode = function _setMode(mode) {
+    this._handler = handlerMap[mode];
+  };
+
+  DraftEditor.prototype._exitCurrentMode = function _exitCurrentMode() {
+    this.setMode('edit');
+  };
 
   /**
    * Used via `this.restoreEditorDOM()`.
@@ -20394,6 +19282,14 @@ var DraftEditor = function (_React$Component) {
    */
 
 
+  DraftEditor.prototype._restoreEditorDOM = function _restoreEditorDOM(scrollPosition) {
+    var _this3 = this;
+
+    this.setState({ contentsKey: this.state.contentsKey + 1 }, function () {
+      _this3._focus(scrollPosition);
+    });
+  };
+
   /**
    * Used via `this.setClipboard(...)`.
    *
@@ -20401,12 +19297,20 @@ var DraftEditor = function (_React$Component) {
    */
 
 
+  DraftEditor.prototype._setClipboard = function _setClipboard(clipboard) {
+    this._clipboard = clipboard;
+  };
+
   /**
    * Used via `this.getClipboard()`.
    *
    * Retrieve the clipboard state for a cut/copy event.
    */
 
+
+  DraftEditor.prototype._getClipboard = function _getClipboard() {
+    return this._clipboard;
+  };
 
   /**
    * Used via `this.update(...)`.
@@ -20419,17 +19323,33 @@ var DraftEditor = function (_React$Component) {
    */
 
 
+  DraftEditor.prototype._update = function _update(editorState) {
+    this._latestEditorState = editorState;
+    this.props.onChange(editorState);
+  };
+
   /**
-   * Used in conjunction with `onDragLeave()`, by counting the number of times
+   * Used in conjunction with `_onDragLeave()`, by counting the number of times
    * a dragged element enters and leaves the editor (or any of its children),
    * to determine when the dragged element absolutely leaves the editor.
    */
 
 
+  DraftEditor.prototype._onDragEnter = function _onDragEnter() {
+    this._dragCount++;
+  };
+
   /**
-   * See `onDragEnter()`.
+   * See `_onDragEnter()`.
    */
 
+
+  DraftEditor.prototype._onDragLeave = function _onDragLeave() {
+    this._dragCount--;
+    if (this._dragCount === 0) {
+      this.exitCurrentMode();
+    }
+  };
 
   return DraftEditor;
 }(React.Component);
@@ -20449,7 +19369,7 @@ module.exports = DraftEditor;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 106 */
+/* 103 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -20462,20 +19382,17 @@ module.exports = DraftEditor;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorCompositionHandler
- * @format
  * 
  */
 
 
 
-var DraftFeatureFlags = __webpack_require__(14);
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
-var Keys = __webpack_require__(37);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
+var Keys = __webpack_require__(35);
 
-var getEntityKeyForSelection = __webpack_require__(38);
-var isEventHandled = __webpack_require__(21);
-var isSelectionAtLeafStart = __webpack_require__(52);
+var getEntityKeyForSelection = __webpack_require__(36);
+var isSelectionAtLeafStart = __webpack_require__(49);
 
 /**
  * Millisecond delay to allow `compositionstart` to fire again upon
@@ -20608,9 +19525,6 @@ var DraftEditorCompositionHandler = {
     editor.exitCurrentMode();
 
     if (composedChars) {
-      if (DraftFeatureFlags.draft_handlebeforeinput_composed_text && editor.props.handleBeforeInput && isEventHandled(editor.props.handleBeforeInput(composedChars, editorState))) {
-        return;
-      }
       // If characters have been composed, re-rendering with the update
       // is sufficient to reset the editor.
       var contentState = DraftModifier.replaceText(editorState.getCurrentContent(), editorState.getSelection(), composedChars, currentStyle, entityKey);
@@ -20630,31 +19544,7 @@ var DraftEditorCompositionHandler = {
 module.exports = DraftEditorCompositionHandler;
 
 /***/ }),
-/* 107 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/**
- * Copyright 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule DraftEditorContents.react
- * @format
- * 
- */
-
-
-
-var DraftEditorContents = __webpack_require__(108);
-
-module.exports = DraftEditorContents;
-
-/***/ }),
-/* 108 */
+/* 104 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -20666,14 +19556,14 @@ module.exports = DraftEditorContents;
  * LICENSE file in the root directory of this source tree. An additional grant
  * of patent rights can be found in the PATENTS file in the same directory.
  *
- * @providesModule DraftEditorContents-core.react
- * @format
+ * @providesModule DraftEditorContents.react
+ * @typechecks
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
@@ -20683,35 +19573,14 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var DraftEditorBlock = __webpack_require__(53);
-var DraftOffsetKey = __webpack_require__(30);
-var EditorState = __webpack_require__(3);
-var React = __webpack_require__(8);
+var DraftEditorBlock = __webpack_require__(50);
+var DraftOffsetKey = __webpack_require__(27);
+var EditorState = __webpack_require__(2);
+var React = __webpack_require__(7);
 
-var cx = __webpack_require__(18);
-var joinClasses = __webpack_require__(131);
-var nullthrows = __webpack_require__(10);
-
-/**
- * Provide default styling for list items. This way, lists will be styled with
- * proper counters and indentation even if the caller does not specify
- * their own styling at all. If more than five levels of nesting are needed,
- * the necessary CSS classes can be provided via `blockStyleFn` configuration.
- */
-var getListItemClasses = function getListItemClasses(type, depth, shouldResetCount, direction) {
-  return cx({
-    'public/DraftStyleDefault/unorderedListItem': type === 'unordered-list-item',
-    'public/DraftStyleDefault/orderedListItem': type === 'ordered-list-item',
-    'public/DraftStyleDefault/reset': shouldResetCount,
-    'public/DraftStyleDefault/depth0': depth === 0,
-    'public/DraftStyleDefault/depth1': depth === 1,
-    'public/DraftStyleDefault/depth2': depth === 2,
-    'public/DraftStyleDefault/depth3': depth === 3,
-    'public/DraftStyleDefault/depth4': depth === 4,
-    'public/DraftStyleDefault/listLTR': direction === 'LTR',
-    'public/DraftStyleDefault/listRTL': direction === 'RTL'
-  });
-};
+var cx = __webpack_require__(17);
+var joinClasses = __webpack_require__(127);
+var nullthrows = __webpack_require__(6);
 
 /**
  * `DraftEditorContents` is the container component for all block components
@@ -20722,7 +19591,6 @@ var getListItemClasses = function getListItemClasses(type, depth, shouldResetCou
  * (for instance, ARIA props) must be allowed to update without affecting
  * the contents of the editor.
  */
-
 var DraftEditorContents = function (_React$Component) {
   _inherits(DraftEditorContents, _React$Component);
 
@@ -20773,12 +19641,9 @@ var DraftEditorContents = function (_React$Component) {
     var _props = this.props,
         blockRenderMap = _props.blockRenderMap,
         blockRendererFn = _props.blockRendererFn,
-        blockStyleFn = _props.blockStyleFn,
         customStyleMap = _props.customStyleMap,
         customStyleFn = _props.customStyleFn,
-        editorState = _props.editorState,
-        editorKey = _props.editorKey,
-        textDirectionality = _props.textDirectionality;
+        editorState = _props.editorState;
 
 
     var content = editorState.getCurrentContent();
@@ -20789,7 +19654,6 @@ var DraftEditorContents = function (_React$Component) {
 
     var blocksAsArray = content.getBlocksAsArray();
     var processedBlocks = [];
-
     var currentDepth = null;
     var lastWrapperTemplate = null;
 
@@ -20808,13 +19672,14 @@ var DraftEditorContents = function (_React$Component) {
         customEditable = customRenderer.editable;
       }
 
-      var direction = textDirectionality ? textDirectionality : directionMap.get(key);
+      var _textDirectionality = this.props.textDirectionality;
+
+      var direction = _textDirectionality ? _textDirectionality : directionMap.get(key);
       var offsetKey = DraftOffsetKey.encode(key, 0, 0);
       var componentProps = {
         contentState: content,
         block: _block,
         blockProps: customProps,
-        blockStyleFn: blockStyleFn,
         customStyleMap: customStyleMap,
         customStyleFn: customStyleFn,
         decorator: decorator,
@@ -20832,10 +19697,7 @@ var DraftEditorContents = function (_React$Component) {
       var Element = configForType.element || blockRenderMap.get('unstyled').element;
 
       var depth = _block.getDepth();
-      var className = '';
-      if (blockStyleFn) {
-        className = blockStyleFn(_block);
-      }
+      var className = this.props.blockStyleFn(_block);
 
       // List items are special snowflakes, since we handle nesting and
       // counters manually.
@@ -20848,7 +19710,11 @@ var DraftEditorContents = function (_React$Component) {
       var childProps = {
         className: className,
         'data-block': true,
-        'data-editor': editorKey,
+        /* $FlowFixMe(>=0.53.0 site=www,mobile) This comment suppresses an
+         * error when upgrading Flow's support for React. Common errors found
+         * when upgrading Flow's React support are documented at
+         * https://fburl.com/eq7bs81w */
+        'data-editor': this.props.editorKey,
         'data-offset-key': offsetKey,
         key: key
       };
@@ -20859,7 +19725,12 @@ var DraftEditorContents = function (_React$Component) {
         });
       }
 
-      var child = React.createElement(Element, childProps, React.createElement(Component, componentProps));
+      var child = React.createElement(Element, childProps,
+      /* $FlowFixMe(>=0.53.0 site=www,mobile) This comment suppresses an
+       * error when upgrading Flow's support for React. Common errors found
+       * when upgrading Flow's React support are documented at
+       * https://fburl.com/eq7bs81w */
+      React.createElement(Component, componentProps));
 
       processedBlocks.push({
         block: child,
@@ -20907,10 +19778,33 @@ var DraftEditorContents = function (_React$Component) {
   return DraftEditorContents;
 }(React.Component);
 
+/**
+ * Provide default styling for list items. This way, lists will be styled with
+ * proper counters and indentation even if the caller does not specify
+ * their own styling at all. If more than five levels of nesting are needed,
+ * the necessary CSS classes can be provided via `blockStyleFn` configuration.
+ */
+
+
+function getListItemClasses(type, depth, shouldResetCount, direction) {
+  return cx({
+    'public/DraftStyleDefault/unorderedListItem': type === 'unordered-list-item',
+    'public/DraftStyleDefault/orderedListItem': type === 'ordered-list-item',
+    'public/DraftStyleDefault/reset': shouldResetCount,
+    'public/DraftStyleDefault/depth0': depth === 0,
+    'public/DraftStyleDefault/depth1': depth === 1,
+    'public/DraftStyleDefault/depth2': depth === 2,
+    'public/DraftStyleDefault/depth3': depth === 3,
+    'public/DraftStyleDefault/depth4': depth === 4,
+    'public/DraftStyleDefault/listLTR': direction === 'LTR',
+    'public/DraftStyleDefault/listRTL': direction === 'RTL'
+  });
+}
+
 module.exports = DraftEditorContents;
 
 /***/ }),
-/* 109 */
+/* 105 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -20923,13 +19817,13 @@ module.exports = DraftEditorContents;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorLeaf.react
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -20937,12 +19831,13 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var DraftEditorTextNode = __webpack_require__(110);
-var React = __webpack_require__(8);
-var ReactDOM = __webpack_require__(22);
+var ContentBlock = __webpack_require__(13);
+var DraftEditorTextNode = __webpack_require__(106);
+var React = __webpack_require__(7);
+var ReactDOM = __webpack_require__(18);
 
 var invariant = __webpack_require__(1);
-var setDraftEditorSelection = __webpack_require__(123);
+var setDraftEditorSelection = __webpack_require__(119);
 
 /**
  * All leaf nodes in the editor are spans with single text nodes. Leaf
@@ -20962,6 +19857,15 @@ var DraftEditorLeaf = function (_React$Component) {
     return _possibleConstructorReturn(this, _React$Component.apply(this, arguments));
   }
 
+  /**
+   * By making individual leaf instances aware of their context within
+   * the text of the editor, we can set our selection range more
+   * easily than we could in the non-React world.
+   *
+   * Note that this depends on our maintaining tight control over the
+   * DOM structure of the DraftEditor component. If leaves had multiple
+   * text nodes, this would be harder.
+   */
   DraftEditorLeaf.prototype._setSelection = function _setSelection() {
     var selection = this.props.selection;
 
@@ -21002,18 +19906,9 @@ var DraftEditorLeaf = function (_React$Component) {
 
     setDraftEditorSelection(selection, targetNode, blockKey, start, end);
   };
-  /**
-   * By making individual leaf instances aware of their context within
-   * the text of the editor, we can set our selection range more
-   * easily than we could in the non-React world.
-   *
-   * Note that this depends on our maintaining tight control over the
-   * DOM structure of the DraftEditor component. If leaves had multiple
-   * text nodes, this would be harder.
-   */
 
   DraftEditorLeaf.prototype.shouldComponentUpdate = function shouldComponentUpdate(nextProps) {
-    var leafNode = ReactDOM.findDOMNode(this.leaf);
+    var leafNode = ReactDOM.findDOMNode(this.refs.leaf);
     !leafNode ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Missing leafNode') : invariant(false) : void 0;
     return leafNode.textContent !== nextProps.text || nextProps.styleSet !== this.props.styleSet || nextProps.forceSelection;
   };
@@ -21027,8 +19922,6 @@ var DraftEditorLeaf = function (_React$Component) {
   };
 
   DraftEditorLeaf.prototype.render = function render() {
-    var _this2 = this;
-
     var block = this.props.block;
     var text = this.props.text;
 
@@ -21068,9 +19961,7 @@ var DraftEditorLeaf = function (_React$Component) {
       'span',
       {
         'data-offset-key': offsetKey,
-        ref: function ref(_ref) {
-          return _this2.leaf = _ref;
-        },
+        ref: 'leaf',
         style: styleObj },
       React.createElement(
         DraftEditorTextNode,
@@ -21087,7 +19978,7 @@ module.exports = DraftEditorLeaf;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 110 */
+/* 106 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -21100,7 +19991,7 @@ module.exports = DraftEditorLeaf;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorTextNode.react
- * @format
+ * @typechecks
  * 
  */
 
@@ -21112,8 +20003,8 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var React = __webpack_require__(8);
-var ReactDOM = __webpack_require__(22);
+var React = __webpack_require__(7);
+var ReactDOM = __webpack_require__(18);
 var UserAgent = __webpack_require__(11);
 
 var invariant = __webpack_require__(1);
@@ -21165,8 +20056,6 @@ var DraftEditorTextNode = function (_React$Component) {
   function DraftEditorTextNode(props) {
     _classCallCheck(this, DraftEditorTextNode);
 
-    // By flipping this flag, we also keep flipping keys which forces
-    // React to remount this node every time it rerenders.
     var _this = _possibleConstructorReturn(this, _React$Component.call(this, props));
 
     _this._forceFlag = false;
@@ -21183,11 +20072,9 @@ var DraftEditorTextNode = function (_React$Component) {
     return node.textContent !== nextProps.children;
   };
 
-  DraftEditorTextNode.prototype.componentDidMount = function componentDidMount() {
-    this._forceFlag = !this._forceFlag;
-  };
-
-  DraftEditorTextNode.prototype.componentDidUpdate = function componentDidUpdate() {
+  DraftEditorTextNode.prototype.componentWillUpdate = function componentWillUpdate() {
+    // By flipping this flag, we also keep flipping keys which forces
+    // React to remount this node every time it rerenders.
     this._forceFlag = !this._forceFlag;
   };
 
@@ -21209,7 +20096,7 @@ module.exports = DraftEditorTextNode;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 111 */
+/* 107 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -21225,7 +20112,7 @@ module.exports = DraftEditorTextNode;
 /*
  Modernizr 3.0.0pre (Custom Build) | MIT
 */
-var aa=__webpack_require__(8),l=__webpack_require__(54),B=__webpack_require__(4),C=__webpack_require__(9),ba=__webpack_require__(55),da=__webpack_require__(29),ea=__webpack_require__(56),fa=__webpack_require__(23),ia=__webpack_require__(57),D=__webpack_require__(25);
+var aa=__webpack_require__(7),l=__webpack_require__(51),B=__webpack_require__(5),C=__webpack_require__(8),ba=__webpack_require__(52),da=__webpack_require__(26),ea=__webpack_require__(53),fa=__webpack_require__(19),ia=__webpack_require__(54),D=__webpack_require__(21);
 function E(a){for(var b=arguments.length-1,c="Minified React error #"+a+"; visit http://facebook.github.io/react/docs/error-decoder.html?invariant\x3d"+a,d=0;d<b;d++)c+="\x26args[]\x3d"+encodeURIComponent(arguments[d+1]);b=Error(c+" for the full message or use the non-minified dev environment for full errors and additional helpful warnings.");b.name="Invariant Violation";b.framesToPop=1;throw b;}aa?void 0:E("227");
 var oa={children:!0,dangerouslySetInnerHTML:!0,defaultValue:!0,defaultChecked:!0,innerHTML:!0,suppressContentEditableWarning:!0,suppressHydrationWarning:!0,style:!0};function pa(a,b){return(a&b)===b}
 var ta={MUST_USE_PROPERTY:1,HAS_BOOLEAN_VALUE:4,HAS_NUMERIC_VALUE:8,HAS_POSITIVE_NUMERIC_VALUE:24,HAS_OVERLOADED_BOOLEAN_VALUE:32,HAS_STRING_BOOLEAN_VALUE:64,injectDOMPropertyConfig:function(a){var b=ta,c=a.Properties||{},d=a.DOMAttributeNamespaces||{},e=a.DOMAttributeNames||{};a=a.DOMMutationMethods||{};for(var f in c){ua.hasOwnProperty(f)?E("48",f):void 0;var g=f.toLowerCase(),h=c[f];g={attributeName:g,attributeNamespace:null,propertyName:f,mutationMethod:null,mustUseProperty:pa(h,b.MUST_USE_PROPERTY),
@@ -21445,7 +20332,7 @@ Z.injectIntoDevTools({findFiberByHostInstance:pb,bundleType:0,version:"16.2.0",r
 
 
 /***/ }),
-/* 112 */
+/* 108 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -21460,7 +20347,7 @@ Z.injectIntoDevTools({findFiberByHostInstance:pb,bundleType:0,version:"16.2.0",r
  * @typechecks
  */
 
-var isNode = __webpack_require__(113);
+var isNode = __webpack_require__(109);
 
 /**
  * @param {*} object The object to check.
@@ -21473,7 +20360,7 @@ function isTextNode(object) {
 module.exports = isTextNode;
 
 /***/ }),
-/* 113 */
+/* 109 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -21501,7 +20388,7 @@ function isNode(object) {
 module.exports = isNode;
 
 /***/ }),
-/* 114 */
+/* 110 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -21522,21 +20409,21 @@ if (process.env.NODE_ENV !== "production") {
   (function() {
 'use strict';
 
-var React = __webpack_require__(8);
+var React = __webpack_require__(7);
 var invariant = __webpack_require__(1);
-var warning = __webpack_require__(26);
-var ExecutionEnvironment = __webpack_require__(54);
-var _assign = __webpack_require__(4);
-var emptyFunction = __webpack_require__(9);
-var EventListener = __webpack_require__(55);
-var getActiveElement = __webpack_require__(29);
-var shallowEqual = __webpack_require__(56);
-var containsNode = __webpack_require__(23);
-var focusNode = __webpack_require__(57);
-var emptyObject = __webpack_require__(25);
-var checkPropTypes = __webpack_require__(31);
-var hyphenateStyleName = __webpack_require__(115);
-var camelizeStyleName = __webpack_require__(116);
+var warning = __webpack_require__(22);
+var ExecutionEnvironment = __webpack_require__(51);
+var _assign = __webpack_require__(5);
+var emptyFunction = __webpack_require__(8);
+var EventListener = __webpack_require__(52);
+var getActiveElement = __webpack_require__(26);
+var shallowEqual = __webpack_require__(53);
+var containsNode = __webpack_require__(19);
+var focusNode = __webpack_require__(54);
+var emptyObject = __webpack_require__(21);
+var checkPropTypes = __webpack_require__(29);
+var hyphenateStyleName = __webpack_require__(111);
+var camelizeStyleName = __webpack_require__(112);
 
 /**
  * WARNING: DO NOT manually require this module.
@@ -36903,7 +35790,7 @@ module.exports = reactDom;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 115 */
+/* 111 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -36918,7 +35805,7 @@ module.exports = reactDom;
 
 
 
-var hyphenate = __webpack_require__(58);
+var hyphenate = __webpack_require__(55);
 
 var msPattern = /^ms-/;
 
@@ -36945,7 +35832,7 @@ function hyphenateStyleName(string) {
 module.exports = hyphenateStyleName;
 
 /***/ }),
-/* 116 */
+/* 112 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -36960,7 +35847,7 @@ module.exports = hyphenateStyleName;
 
 
 
-var camelize = __webpack_require__(59);
+var camelize = __webpack_require__(56);
 
 var msPattern = /^-ms-/;
 
@@ -36988,7 +35875,7 @@ function camelizeStyleName(string) {
 module.exports = camelizeStyleName;
 
 /***/ }),
-/* 117 */
+/* 113 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -37013,7 +35900,7 @@ module.exports = camelizeStyleName;
 
 
 
-var UAParser = __webpack_require__(118);
+var UAParser = __webpack_require__(114);
 
 var UNKNOWN = 'Unknown';
 
@@ -37074,7 +35961,7 @@ var uaData = {
 module.exports = uaData;
 
 /***/ }),
-/* 118 */
+/* 114 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var __WEBPACK_AMD_DEFINE_RESULT__;/**
@@ -38117,7 +37004,7 @@ var __WEBPACK_AMD_DEFINE_RESULT__;/**
         exports.UAParser = UAParser;
     } else {
         // requirejs env (optional)
-        if ("function" === FUNC_TYPE && __webpack_require__(119)) {
+        if ("function" === FUNC_TYPE && __webpack_require__(115)) {
             !(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
                 return UAParser;
             }.call(exports, __webpack_require__, exports, module),
@@ -38153,7 +37040,7 @@ var __WEBPACK_AMD_DEFINE_RESULT__;/**
 
 
 /***/ }),
-/* 119 */
+/* 115 */
 /***/ (function(module, exports) {
 
 /* WEBPACK VAR INJECTION */(function(__webpack_amd_options__) {/* globals __webpack_amd_options__ */
@@ -38162,7 +37049,7 @@ module.exports = __webpack_amd_options__;
 /* WEBPACK VAR INJECTION */}.call(exports, {}))
 
 /***/ }),
-/* 120 */
+/* 116 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38549,7 +37436,7 @@ module.exports = VersionRange;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 121 */
+/* 117 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38603,7 +37490,7 @@ function mapObject(object, callback, context) {
 module.exports = mapObject;
 
 /***/ }),
-/* 122 */
+/* 118 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38636,7 +37523,7 @@ function memoizeStringOnly(callback) {
 module.exports = memoizeStringOnly;
 
 /***/ }),
-/* 123 */
+/* 119 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38649,16 +37536,17 @@ module.exports = memoizeStringOnly;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule setDraftEditorSelection
+ * @typechecks
  * @format
  * 
  */
 
 
 
-var DraftJsDebugLogging = __webpack_require__(124);
+var DraftJsDebugLogging = __webpack_require__(120);
 
-var containsNode = __webpack_require__(23);
-var getActiveElement = __webpack_require__(29);
+var containsNode = __webpack_require__(19);
+var getActiveElement = __webpack_require__(26);
 var invariant = __webpack_require__(1);
 
 function getAnonymizedDOM(node, getNodeLabels) {
@@ -38885,10 +37773,10 @@ function addPointToSelection(selection, node, offset, selectionState) {
 }
 
 module.exports = setDraftEditorSelection;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0), __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0), __webpack_require__(12)))
 
 /***/ }),
-/* 124 */
+/* 120 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38912,7 +37800,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 125 */
+/* 121 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38927,8 +37815,8 @@ module.exports = {
  * @typechecks
  */
 
-var camelize = __webpack_require__(59);
-var hyphenate = __webpack_require__(58);
+var camelize = __webpack_require__(56);
+var hyphenate = __webpack_require__(55);
 
 function asString(value) /*?string*/{
   return value == null ? value : String(value);
@@ -38969,7 +37857,7 @@ function getStyleProperty( /*DOMNode*/node, /*string*/name) /*?string*/{
 module.exports = getStyleProperty;
 
 /***/ }),
-/* 126 */
+/* 122 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -38984,7 +37872,7 @@ module.exports = getStyleProperty;
  * @typechecks
  */
 
-var getElementRect = __webpack_require__(127);
+var getElementRect = __webpack_require__(123);
 
 /**
  * Gets an element's position in pixels relative to the viewport. The returned
@@ -39006,7 +37894,7 @@ function getElementPosition(element) {
 module.exports = getElementPosition;
 
 /***/ }),
-/* 127 */
+/* 123 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39021,7 +37909,7 @@ module.exports = getElementPosition;
  * @typechecks
  */
 
-var containsNode = __webpack_require__(23);
+var containsNode = __webpack_require__(19);
 
 /**
  * Gets an element's bounding rect in pixels relative to the viewport.
@@ -39060,7 +37948,7 @@ function getElementRect(elem) {
 module.exports = getElementRect;
 
 /***/ }),
-/* 128 */
+/* 124 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39097,7 +37985,7 @@ function getDocumentScrollElement(doc) {
 module.exports = getDocumentScrollElement;
 
 /***/ }),
-/* 129 */
+/* 125 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39139,7 +38027,7 @@ function getUnboundedScrollPosition(scrollable) {
 module.exports = getUnboundedScrollPosition;
 
 /***/ }),
-/* 130 */
+/* 126 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39202,7 +38090,7 @@ getViewportDimensions.withoutScrollbars = function () {
 module.exports = getViewportDimensions;
 
 /***/ }),
-/* 131 */
+/* 127 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39245,7 +38133,7 @@ function joinClasses(className /*, ... */) {
 module.exports = joinClasses;
 
 /***/ }),
-/* 132 */
+/* 128 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39258,21 +38146,21 @@ module.exports = joinClasses;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorDragHandler
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var DataTransfer = __webpack_require__(61);
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
+var DataTransfer = __webpack_require__(58);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
 
-var findAncestorOffsetKey = __webpack_require__(41);
-var getTextContentFromFiles = __webpack_require__(63);
-var getUpdatedSelectionState = __webpack_require__(64);
-var isEventHandled = __webpack_require__(21);
-var nullthrows = __webpack_require__(10);
+var findAncestorOffsetKey = __webpack_require__(39);
+var getTextContentFromFiles = __webpack_require__(60);
+var getUpdatedSelectionState = __webpack_require__(61);
+var isEventHandled = __webpack_require__(28);
+var nullthrows = __webpack_require__(6);
 
 /**
  * Get a SelectionState for the supplied mouse event.
@@ -39347,6 +38235,7 @@ var DraftEditorDragHandler = {
 
     editor.update(insertTextAtSelection(editorState, dropSelection, data.getText()));
   }
+
 };
 
 function moveText(editorState, targetSelection) {
@@ -39365,7 +38254,7 @@ function insertTextAtSelection(editorState, selection, text) {
 module.exports = DraftEditorDragHandler;
 
 /***/ }),
-/* 133 */
+/* 129 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39397,7 +38286,7 @@ function getParts(mimeString) {
 module.exports = PhotosMimeType;
 
 /***/ }),
-/* 134 */
+/* 130 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39528,7 +38417,7 @@ module.exports = createArrayFromMixed;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 135 */
+/* 131 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39541,24 +38430,23 @@ module.exports = createArrayFromMixed;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorEditHandler
- * @format
  * 
  */
 
 
 
-var onBeforeInput = __webpack_require__(136);
-var onBlur = __webpack_require__(139);
-var onCompositionStart = __webpack_require__(140);
-var onCopy = __webpack_require__(141);
-var onCut = __webpack_require__(142);
-var onDragOver = __webpack_require__(143);
-var onDragStart = __webpack_require__(144);
-var onFocus = __webpack_require__(145);
-var onInput = __webpack_require__(146);
-var onKeyDown = __webpack_require__(147);
-var onPaste = __webpack_require__(161);
-var onSelect = __webpack_require__(166);
+var onBeforeInput = __webpack_require__(132);
+var onBlur = __webpack_require__(135);
+var onCompositionStart = __webpack_require__(136);
+var onCopy = __webpack_require__(137);
+var onCut = __webpack_require__(138);
+var onDragOver = __webpack_require__(139);
+var onDragStart = __webpack_require__(140);
+var onFocus = __webpack_require__(141);
+var onInput = __webpack_require__(142);
+var onKeyDown = __webpack_require__(143);
+var onPaste = __webpack_require__(157);
+var onSelect = __webpack_require__(162);
 
 var DraftEditorEditHandler = {
   onBeforeInput: onBeforeInput,
@@ -39578,7 +38466,7 @@ var DraftEditorEditHandler = {
 module.exports = DraftEditorEditHandler;
 
 /***/ }),
-/* 136 */
+/* 132 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39591,22 +38479,21 @@ module.exports = DraftEditorEditHandler;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnBeforeInput
- * @format
  * 
  */
 
 
 
-var BlockTree = __webpack_require__(48);
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
+var BlockTree = __webpack_require__(45);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
 var UserAgent = __webpack_require__(11);
 
-var getEntityKeyForSelection = __webpack_require__(38);
-var isEventHandled = __webpack_require__(21);
-var isSelectionAtLeafStart = __webpack_require__(52);
-var nullthrows = __webpack_require__(10);
-var setImmediate = __webpack_require__(137);
+var getEntityKeyForSelection = __webpack_require__(36);
+var isEventHandled = __webpack_require__(28);
+var isSelectionAtLeafStart = __webpack_require__(49);
+var nullthrows = __webpack_require__(6);
+var setImmediate = __webpack_require__(133);
 
 // When nothing is focused, Firefox regards two characters, `'` and `/`, as
 // commands that should open and focus the "quickfind" search bar. This should
@@ -39615,8 +38502,8 @@ var setImmediate = __webpack_require__(137);
 // This breaks the input. Special case these characters to ensure that when
 // they are typed, we prevent default on the event to make sure not to
 // trigger quickfind.
-var FF_QUICKFIND_CHAR = "'";
-var FF_QUICKFIND_LINK_CHAR = '/';
+var FF_QUICKFIND_CHAR = '\'';
+var FF_QUICKFIND_LINK_CHAR = '\/';
 var isFirefox = UserAgent.isBrowser('Firefox');
 
 function mustPreventDefaultForCharacter(character) {
@@ -39678,12 +38565,12 @@ function editOnBeforeInput(editor, e) {
   if (!selection.isCollapsed()) {
     e.preventDefault();
 
-    // If the currently selected text matches what the user is trying to
-    // replace it with, let's just update the `SelectionState`. If not, update
-    // the `ContentState` with the new text.
+    // If the character that the user is trying to replace with
+    // is the same as the current selection text the just update the
+    // `SelectionState`.  Else, update the ContentState with the new text
     var currentlySelectedChars = editorState.getCurrentContent().getPlainText().slice(selectionStart, selectionEnd);
     if (chars === currentlySelectedChars) {
-      editor.update(EditorState.forceSelection(editorState, selection.merge({
+      this.update(EditorState.forceSelection(editorState, selection.merge({
         focusOffset: selectionEnd
       })));
     } else {
@@ -39752,10 +38639,10 @@ function editOnBeforeInput(editor, e) {
 }
 
 module.exports = editOnBeforeInput;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 137 */
+/* 133 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39772,12 +38659,12 @@ module.exports = editOnBeforeInput;
 // setimmediate adds setImmediate to the global. We want to make sure we export
 // the actual function.
 
-__webpack_require__(138);
+__webpack_require__(134);
 module.exports = global.setImmediate;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 138 */
+/* 134 */
 /***/ (function(module, exports, __webpack_require__) {
 
 /* WEBPACK VAR INJECTION */(function(global, process) {(function (global, undefined) {
@@ -39967,10 +38854,10 @@ module.exports = global.setImmediate;
     attachTo.clearImmediate = clearImmediate;
 }(typeof self === "undefined" ? typeof global === "undefined" ? this : global : self));
 
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), __webpack_require__(0)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12), __webpack_require__(0)))
 
 /***/ }),
-/* 139 */
+/* 135 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -39983,16 +38870,15 @@ module.exports = global.setImmediate;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnBlur
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
-var containsNode = __webpack_require__(23);
-var getActiveElement = __webpack_require__(29);
+var containsNode = __webpack_require__(19);
+var getActiveElement = __webpack_require__(26);
 
 function editOnBlur(editor, e) {
   // In a contentEditable element, when you select a range and then click
@@ -40005,7 +38891,7 @@ function editOnBlur(editor, e) {
   // opposed to clicking to another tab or window).
   if (getActiveElement() === document.body) {
     var _selection = global.getSelection();
-    var editorNode = editor.editor;
+    var editorNode = editor.refs.editor;
     if (_selection.rangeCount === 1 && containsNode(editorNode, _selection.anchorNode) && containsNode(editorNode, _selection.focusNode)) {
       _selection.removeAllRanges();
     }
@@ -40023,10 +38909,10 @@ function editOnBlur(editor, e) {
 }
 
 module.exports = editOnBlur;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 140 */
+/* 136 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40039,13 +38925,12 @@ module.exports = editOnBlur;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnCompositionStart
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
 /**
  * The user has begun using an IME input system. Switching to `composite` mode
@@ -40061,7 +38946,7 @@ function editOnCompositionStart(editor, e) {
 module.exports = editOnCompositionStart;
 
 /***/ }),
-/* 141 */
+/* 137 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40074,13 +38959,12 @@ module.exports = editOnCompositionStart;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnCopy
- * @format
  * 
  */
 
 
 
-var getFragmentFromSelection = __webpack_require__(65);
+var getFragmentFromSelection = __webpack_require__(62);
 
 /**
  * If we have a selection, create a ContentState fragment and store
@@ -40103,7 +38987,7 @@ function editOnCopy(editor, e) {
 module.exports = editOnCopy;
 
 /***/ }),
-/* 142 */
+/* 138 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40116,18 +39000,17 @@ module.exports = editOnCopy;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnCut
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
-var Style = __webpack_require__(39);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
+var Style = __webpack_require__(37);
 
-var getFragmentFromSelection = __webpack_require__(65);
-var getScrollPosition = __webpack_require__(40);
+var getFragmentFromSelection = __webpack_require__(62);
+var getScrollPosition = __webpack_require__(38);
 
 /**
  * On `cut` events, native behavior is allowed to occur so that the system
@@ -40141,8 +39024,6 @@ var getScrollPosition = __webpack_require__(40);
 function editOnCut(editor, e) {
   var editorState = editor._latestEditorState;
   var selection = editorState.getSelection();
-  var element = e.target;
-  var scrollPosition = void 0;
 
   // No selection, so there's nothing to cut.
   if (selection.isCollapsed()) {
@@ -40152,9 +39033,12 @@ function editOnCut(editor, e) {
 
   // Track the current scroll position so that it can be forced back in place
   // after the editor regains control of the DOM.
-  if (element instanceof Node) {
-    scrollPosition = getScrollPosition(Style.getScrollParent(element));
-  }
+  // $FlowFixMe e.target should be an instanceof Node
+  var scrollParent = Style.getScrollParent(e.target);
+
+  var _getScrollPosition = getScrollPosition(scrollParent),
+      x = _getScrollPosition.x,
+      y = _getScrollPosition.y;
 
   var fragment = getFragmentFromSelection(editorState);
   editor.setClipboard(fragment);
@@ -40164,7 +39048,7 @@ function editOnCut(editor, e) {
 
   // Let native `cut` behavior occur, then recover control.
   setTimeout(function () {
-    editor.restoreEditorDOM(scrollPosition);
+    editor.restoreEditorDOM({ x: x, y: y });
     editor.exitCurrentMode();
     editor.update(removeFragment(editorState));
   }, 0);
@@ -40178,7 +39062,7 @@ function removeFragment(editorState) {
 module.exports = editOnCut;
 
 /***/ }),
-/* 143 */
+/* 139 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40191,7 +39075,6 @@ module.exports = editOnCut;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnDragOver
- * @format
  * 
  */
 
@@ -40209,7 +39092,7 @@ function editOnDragOver(editor, e) {
 module.exports = editOnDragOver;
 
 /***/ }),
-/* 144 */
+/* 140 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40222,7 +39105,6 @@ module.exports = editOnDragOver;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnDragStart
- * @format
  * 
  */
 
@@ -40239,7 +39121,7 @@ function editOnDragStart(editor) {
 module.exports = editOnDragStart;
 
 /***/ }),
-/* 145 */
+/* 141 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40252,13 +39134,12 @@ module.exports = editOnDragStart;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnFocus
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 var UserAgent = __webpack_require__(11);
 
 function editOnFocus(editor, e) {
@@ -40291,7 +39172,7 @@ function editOnFocus(editor, e) {
 module.exports = editOnFocus;
 
 /***/ }),
-/* 146 */
+/* 142 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40304,20 +39185,19 @@ module.exports = editOnFocus;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnInput
- * @format
  * 
  */
 
 
 
-var DraftFeatureFlags = __webpack_require__(14);
-var DraftModifier = __webpack_require__(5);
-var DraftOffsetKey = __webpack_require__(30);
-var EditorState = __webpack_require__(3);
+var DraftFeatureFlags = __webpack_require__(42);
+var DraftModifier = __webpack_require__(4);
+var DraftOffsetKey = __webpack_require__(27);
+var EditorState = __webpack_require__(2);
 var UserAgent = __webpack_require__(11);
 
-var findAncestorOffsetKey = __webpack_require__(41);
-var nullthrows = __webpack_require__(10);
+var findAncestorOffsetKey = __webpack_require__(39);
+var nullthrows = __webpack_require__(6);
 
 var isGecko = UserAgent.isEngine('Gecko');
 
@@ -40467,10 +39347,10 @@ function editOnInput(editor) {
 }
 
 module.exports = editOnInput;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 147 */
+/* 143 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40483,30 +39363,29 @@ module.exports = editOnInput;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnKeyDown
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
-var KeyBindingUtil = __webpack_require__(42);
-var Keys = __webpack_require__(37);
-var SecondaryClipboard = __webpack_require__(148);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
+var KeyBindingUtil = __webpack_require__(40);
+var Keys = __webpack_require__(35);
+var SecondaryClipboard = __webpack_require__(144);
 var UserAgent = __webpack_require__(11);
 
-var isEventHandled = __webpack_require__(21);
-var keyCommandBackspaceToStartOfLine = __webpack_require__(149);
-var keyCommandBackspaceWord = __webpack_require__(151);
-var keyCommandDeleteWord = __webpack_require__(153);
-var keyCommandInsertNewline = __webpack_require__(154);
-var keyCommandMoveSelectionToEndOfBlock = __webpack_require__(155);
-var keyCommandMoveSelectionToStartOfBlock = __webpack_require__(156);
-var keyCommandPlainBackspace = __webpack_require__(157);
-var keyCommandPlainDelete = __webpack_require__(158);
-var keyCommandTransposeCharacters = __webpack_require__(159);
-var keyCommandUndo = __webpack_require__(160);
+var isEventHandled = __webpack_require__(28);
+var keyCommandBackspaceToStartOfLine = __webpack_require__(145);
+var keyCommandBackspaceWord = __webpack_require__(147);
+var keyCommandDeleteWord = __webpack_require__(149);
+var keyCommandInsertNewline = __webpack_require__(150);
+var keyCommandMoveSelectionToEndOfBlock = __webpack_require__(151);
+var keyCommandMoveSelectionToStartOfBlock = __webpack_require__(152);
+var keyCommandPlainBackspace = __webpack_require__(153);
+var keyCommandPlainDelete = __webpack_require__(154);
+var keyCommandTransposeCharacters = __webpack_require__(155);
+var keyCommandUndo = __webpack_require__(156);
 
 var isOptionKeyCommand = KeyBindingUtil.isOptionKeyCommand;
 
@@ -40630,7 +39509,7 @@ function editOnKeyDown(editor, e) {
 module.exports = editOnKeyDown;
 
 /***/ }),
-/* 148 */
+/* 144 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40643,17 +39522,16 @@ module.exports = editOnKeyDown;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule SecondaryClipboard
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
 
-var getContentStateFragment = __webpack_require__(27);
-var nullthrows = __webpack_require__(10);
+var getContentStateFragment = __webpack_require__(24);
+var nullthrows = __webpack_require__(6);
 
 var clipboard = null;
 
@@ -40706,7 +39584,7 @@ var SecondaryClipboard = {
 module.exports = SecondaryClipboard;
 
 /***/ }),
-/* 149 */
+/* 145 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40719,18 +39597,17 @@ module.exports = SecondaryClipboard;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandBackspaceToStartOfLine
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
-var expandRangeToStartOfLine = __webpack_require__(150);
-var getDraftEditorSelectionWithNodes = __webpack_require__(67);
-var moveSelectionBackward = __webpack_require__(43);
-var removeTextWithStrategy = __webpack_require__(24);
+var expandRangeToStartOfLine = __webpack_require__(146);
+var getDraftEditorSelectionWithNodes = __webpack_require__(64);
+var moveSelectionBackward = __webpack_require__(41);
+var removeTextWithStrategy = __webpack_require__(20);
 
 function keyCommandBackspaceToStartOfLine(editorState) {
   var afterRemoval = removeTextWithStrategy(editorState, function (strategyState) {
@@ -40754,10 +39631,10 @@ function keyCommandBackspaceToStartOfLine(editorState) {
 }
 
 module.exports = keyCommandBackspaceToStartOfLine;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 150 */
+/* 146 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40772,13 +39649,13 @@ module.exports = keyCommandBackspaceToStartOfLine;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule expandRangeToStartOfLine
- * @format
+ * @typechecks
  * 
  */
 
-var UnicodeUtils = __webpack_require__(16);
+var UnicodeUtils = __webpack_require__(14);
 
-var getRangeClientRects = __webpack_require__(66);
+var getRangeClientRects = __webpack_require__(63);
 var invariant = __webpack_require__(1);
 
 /**
@@ -40956,7 +39833,7 @@ module.exports = expandRangeToStartOfLine;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 151 */
+/* 147 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -40969,17 +39846,16 @@ module.exports = expandRangeToStartOfLine;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandBackspaceWord
- * @format
  * 
  */
 
 
 
-var DraftRemovableWord = __webpack_require__(68);
-var EditorState = __webpack_require__(3);
+var DraftRemovableWord = __webpack_require__(65);
+var EditorState = __webpack_require__(2);
 
-var moveSelectionBackward = __webpack_require__(43);
-var removeTextWithStrategy = __webpack_require__(24);
+var moveSelectionBackward = __webpack_require__(41);
+var removeTextWithStrategy = __webpack_require__(20);
 
 /**
  * Delete the word that is left of the cursor, as well as any spaces or
@@ -41010,7 +39886,7 @@ function keyCommandBackspaceWord(editorState) {
 module.exports = keyCommandBackspaceWord;
 
 /***/ }),
-/* 152 */
+/* 148 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41051,7 +39927,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 153 */
+/* 149 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41064,17 +39940,16 @@ module.exports = {
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandDeleteWord
- * @format
  * 
  */
 
 
 
-var DraftRemovableWord = __webpack_require__(68);
-var EditorState = __webpack_require__(3);
+var DraftRemovableWord = __webpack_require__(65);
+var EditorState = __webpack_require__(2);
 
-var moveSelectionForward = __webpack_require__(69);
-var removeTextWithStrategy = __webpack_require__(24);
+var moveSelectionForward = __webpack_require__(66);
+var removeTextWithStrategy = __webpack_require__(20);
 
 /**
  * Delete the word that is right of the cursor, as well as any spaces or
@@ -41103,7 +39978,7 @@ function keyCommandDeleteWord(editorState) {
 module.exports = keyCommandDeleteWord;
 
 /***/ }),
-/* 154 */
+/* 150 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41116,14 +39991,13 @@ module.exports = keyCommandDeleteWord;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandInsertNewline
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
 
 function keyCommandInsertNewline(editorState) {
   var contentState = DraftModifier.splitBlock(editorState.getCurrentContent(), editorState.getSelection());
@@ -41133,7 +40007,7 @@ function keyCommandInsertNewline(editorState) {
 module.exports = keyCommandInsertNewline;
 
 /***/ }),
-/* 155 */
+/* 151 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41146,13 +40020,12 @@ module.exports = keyCommandInsertNewline;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandMoveSelectionToEndOfBlock
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
 /**
  * See comment for `moveSelectionToStartOfBlock`.
@@ -41177,7 +40050,7 @@ function keyCommandMoveSelectionToEndOfBlock(editorState) {
 module.exports = keyCommandMoveSelectionToEndOfBlock;
 
 /***/ }),
-/* 156 */
+/* 152 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41190,13 +40063,12 @@ module.exports = keyCommandMoveSelectionToEndOfBlock;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandMoveSelectionToStartOfBlock
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
 /**
  * Collapse selection at the start of the first selected block. This is used
@@ -41221,7 +40093,7 @@ function keyCommandMoveSelectionToStartOfBlock(editorState) {
 module.exports = keyCommandMoveSelectionToStartOfBlock;
 
 /***/ }),
-/* 157 */
+/* 153 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41234,17 +40106,16 @@ module.exports = keyCommandMoveSelectionToStartOfBlock;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandPlainBackspace
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
-var UnicodeUtils = __webpack_require__(16);
+var EditorState = __webpack_require__(2);
+var UnicodeUtils = __webpack_require__(14);
 
-var moveSelectionBackward = __webpack_require__(43);
-var removeTextWithStrategy = __webpack_require__(24);
+var moveSelectionBackward = __webpack_require__(41);
+var removeTextWithStrategy = __webpack_require__(20);
 
 /**
  * Remove the selected range. If the cursor is collapsed, remove the preceding
@@ -41272,7 +40143,7 @@ function keyCommandPlainBackspace(editorState) {
 module.exports = keyCommandPlainBackspace;
 
 /***/ }),
-/* 158 */
+/* 154 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41285,17 +40156,16 @@ module.exports = keyCommandPlainBackspace;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandPlainDelete
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
-var UnicodeUtils = __webpack_require__(16);
+var EditorState = __webpack_require__(2);
+var UnicodeUtils = __webpack_require__(14);
 
-var moveSelectionForward = __webpack_require__(69);
-var removeTextWithStrategy = __webpack_require__(24);
+var moveSelectionForward = __webpack_require__(66);
+var removeTextWithStrategy = __webpack_require__(20);
 
 /**
  * Remove the selected range. If the cursor is collapsed, remove the following
@@ -41324,7 +40194,7 @@ function keyCommandPlainDelete(editorState) {
 module.exports = keyCommandPlainDelete;
 
 /***/ }),
-/* 159 */
+/* 155 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41337,16 +40207,15 @@ module.exports = keyCommandPlainDelete;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandTransposeCharacters
- * @format
  * 
  */
 
 
 
-var DraftModifier = __webpack_require__(5);
-var EditorState = __webpack_require__(3);
+var DraftModifier = __webpack_require__(4);
+var EditorState = __webpack_require__(2);
 
-var getContentStateFragment = __webpack_require__(27);
+var getContentStateFragment = __webpack_require__(24);
 
 /**
  * Transpose the characters on either side of a collapsed cursor, or
@@ -41409,7 +40278,7 @@ function keyCommandTransposeCharacters(editorState) {
 module.exports = keyCommandTransposeCharacters;
 
 /***/ }),
-/* 160 */
+/* 156 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41422,13 +40291,12 @@ module.exports = keyCommandTransposeCharacters;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule keyCommandUndo
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
+var EditorState = __webpack_require__(2);
 
 function keyCommandUndo(e, editorState, updateFn) {
   var undoneState = EditorState.undo(editorState);
@@ -41464,7 +40332,7 @@ function keyCommandUndo(e, editorState, updateFn) {
 module.exports = keyCommandUndo;
 
 /***/ }),
-/* 161 */
+/* 157 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41477,24 +40345,23 @@ module.exports = keyCommandUndo;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnPaste
- * @format
  * 
  */
 
 
 
-var BlockMapBuilder = __webpack_require__(19);
-var CharacterMetadata = __webpack_require__(6);
-var DataTransfer = __webpack_require__(61);
-var DraftModifier = __webpack_require__(5);
-var DraftPasteProcessor = __webpack_require__(162);
-var EditorState = __webpack_require__(3);
-var RichTextEditorUtil = __webpack_require__(72);
+var BlockMapBuilder = __webpack_require__(15);
+var CharacterMetadata = __webpack_require__(9);
+var DataTransfer = __webpack_require__(58);
+var DraftModifier = __webpack_require__(4);
+var DraftPasteProcessor = __webpack_require__(158);
+var EditorState = __webpack_require__(2);
+var RichTextEditorUtil = __webpack_require__(69);
 
-var getEntityKeyForSelection = __webpack_require__(38);
-var getTextContentFromFiles = __webpack_require__(63);
-var isEventHandled = __webpack_require__(21);
-var splitTextIntoTextBlocks = __webpack_require__(165);
+var getEntityKeyForSelection = __webpack_require__(36);
+var getTextContentFromFiles = __webpack_require__(60);
+var isEventHandled = __webpack_require__(28);
+var splitTextIntoTextBlocks = __webpack_require__(161);
 
 /**
  * Paste content.
@@ -41635,7 +40502,7 @@ function areTextBlocksAndClipboardEqual(textBlocks, blockMap) {
 module.exports = editOnPaste;
 
 /***/ }),
-/* 162 */
+/* 158 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41648,73 +40515,46 @@ module.exports = editOnPaste;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftPasteProcessor
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var CharacterMetadata = __webpack_require__(9);
+var ContentBlock = __webpack_require__(13);
+var Immutable = __webpack_require__(3);
 
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-var CharacterMetadata = __webpack_require__(6);
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var DraftFeatureFlags = __webpack_require__(14);
-var Immutable = __webpack_require__(2);
-
-var convertFromHTMLtoContentBlocks = __webpack_require__(70);
-var generateRandomKey = __webpack_require__(12);
-var getSafeBodyFromHTML = __webpack_require__(71);
-var sanitizeDraftText = __webpack_require__(34);
+var convertFromHTMLtoContentBlocks = __webpack_require__(67);
+var generateRandomKey = __webpack_require__(10);
+var getSafeBodyFromHTML = __webpack_require__(68);
+var sanitizeDraftText = __webpack_require__(32);
 
 var List = Immutable.List,
     Repeat = Immutable.Repeat;
 
-
-var experimentalTreeDataSupport = DraftFeatureFlags.draft_tree_data_support;
-var ContentBlockRecord = experimentalTreeDataSupport ? ContentBlockNode : ContentBlock;
 
 var DraftPasteProcessor = {
   processHTML: function processHTML(html, blockRenderMap) {
     return convertFromHTMLtoContentBlocks(html, getSafeBodyFromHTML, blockRenderMap);
   },
   processText: function processText(textBlocks, character, type) {
-    return textBlocks.reduce(function (acc, textLine, index) {
+    return textBlocks.map(function (textLine) {
       textLine = sanitizeDraftText(textLine);
-      var key = generateRandomKey();
-
-      var blockNodeConfig = {
-        key: key,
+      return new ContentBlock({
+        key: generateRandomKey(),
         type: type,
         text: textLine,
         characterList: List(Repeat(character, textLine.length))
-      };
-
-      // next block updates previous block
-      if (experimentalTreeDataSupport && index !== 0) {
-        var prevSiblingIndex = index - 1;
-        // update previous block
-        var previousBlock = acc[prevSiblingIndex] = acc[prevSiblingIndex].merge({
-          nextSibling: key
-        });
-        blockNodeConfig = _extends({}, blockNodeConfig, {
-          prevSibling: previousBlock.getKey()
-        });
-      }
-
-      acc.push(new ContentBlockRecord(blockNodeConfig));
-
-      return acc;
-    }, []);
+      });
+    });
   }
 };
 
 module.exports = DraftPasteProcessor;
 
 /***/ }),
-/* 163 */
+/* 159 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41748,7 +40588,7 @@ var URI = function () {
 module.exports = URI;
 
 /***/ }),
-/* 164 */
+/* 160 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41761,7 +40601,7 @@ module.exports = URI;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule adjustBlockDepthForContentState
- * @format
+ * @typechecks
  * 
  */
 
@@ -41793,7 +40633,7 @@ function adjustBlockDepthForContentState(contentState, selectionState, adjustmen
 module.exports = adjustBlockDepthForContentState;
 
 /***/ }),
-/* 165 */
+/* 161 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41806,7 +40646,6 @@ module.exports = adjustBlockDepthForContentState;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule splitTextIntoTextBlocks
- * @format
  * 
  */
 
@@ -41821,7 +40660,7 @@ function splitTextIntoTextBlocks(text) {
 module.exports = splitTextIntoTextBlocks;
 
 /***/ }),
-/* 166 */
+/* 162 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41834,16 +40673,15 @@ module.exports = splitTextIntoTextBlocks;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule editOnSelect
- * @format
  * 
  */
 
 
 
-var EditorState = __webpack_require__(3);
-var ReactDOM = __webpack_require__(22);
+var EditorState = __webpack_require__(2);
+var ReactDOM = __webpack_require__(18);
 
-var getDraftEditorSelection = __webpack_require__(167);
+var getDraftEditorSelection = __webpack_require__(163);
 var invariant = __webpack_require__(1);
 
 function editOnSelect(editor) {
@@ -41852,7 +40690,7 @@ function editOnSelect(editor) {
   }
 
   var editorState = editor.props.editorState;
-  var editorNode = ReactDOM.findDOMNode(editor.editorContainer);
+  var editorNode = ReactDOM.findDOMNode(editor.refs.editorContainer);
   !editorNode ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Missing editorNode') : invariant(false) : void 0;
   !(editorNode.firstChild instanceof HTMLElement) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'editorNode.firstChild is not an HTMLElement') : invariant(false) : void 0;
   var documentSelection = getDraftEditorSelection(editorState, editorNode.firstChild);
@@ -41872,7 +40710,7 @@ module.exports = editOnSelect;
 /* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 167 */
+/* 163 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41885,13 +40723,13 @@ module.exports = editOnSelect;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getDraftEditorSelection
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var getDraftEditorSelectionWithNodes = __webpack_require__(67);
+var getDraftEditorSelectionWithNodes = __webpack_require__(64);
 
 /**
  * Convert the current selection range to an anchor/focus pair of offset keys
@@ -41912,10 +40750,10 @@ function getDraftEditorSelection(editorState, root) {
 }
 
 module.exports = getDraftEditorSelection;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(12)))
 
 /***/ }),
-/* 168 */
+/* 164 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -41928,7 +40766,7 @@ module.exports = getDraftEditorSelection;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule DraftEditorPlaceholder.react
- * @format
+ * @typechecks
  * 
  */
 
@@ -41940,9 +40778,9 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var React = __webpack_require__(8);
+var React = __webpack_require__(7);
 
-var cx = __webpack_require__(18);
+var cx = __webpack_require__(17);
 
 /**
  * This component is responsible for rendering placeholder text for the
@@ -41971,10 +40809,6 @@ var DraftEditorPlaceholder = function (_React$Component) {
       'public/DraftEditorPlaceholder/hasFocus': hasFocus
     });
 
-    var contentStyle = {
-      whiteSpace: 'pre-wrap'
-    };
-
     return React.createElement(
       'div',
       { className: className },
@@ -41982,8 +40816,7 @@ var DraftEditorPlaceholder = function (_React$Component) {
         'div',
         {
           className: cx('public/DraftEditorPlaceholder/inner'),
-          id: this.props.accessibilityID,
-          style: contentStyle },
+          id: this.props.accessibilityID },
         this.props.text
       )
     );
@@ -41995,11 +40828,11 @@ var DraftEditorPlaceholder = function (_React$Component) {
 module.exports = DraftEditorPlaceholder;
 
 /***/ }),
-/* 169 */
+/* 165 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/* WEBPACK VAR INJECTION */(function(process) {/**
+/**
  * Copyright (c) 2013-present, Facebook, Inc.
  * All rights reserved.
  *
@@ -42008,109 +40841,50 @@ module.exports = DraftEditorPlaceholder;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule convertFromDraftStateToRaw
- * @format
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var DraftStringKey = __webpack_require__(71);
 
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+var encodeEntityRanges = __webpack_require__(166);
+var encodeInlineStyleRanges = __webpack_require__(167);
 
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var DraftStringKey = __webpack_require__(74);
-
-var encodeEntityRanges = __webpack_require__(170);
-var encodeInlineStyleRanges = __webpack_require__(171);
-var invariant = __webpack_require__(1);
-
-var createRawBlock = function createRawBlock(block, entityStorageMap) {
-  return {
-    key: block.getKey(),
-    text: block.getText(),
-    type: block.getType(),
-    depth: block.getDepth(),
-    inlineStyleRanges: encodeInlineStyleRanges(block),
-    entityRanges: encodeEntityRanges(block, entityStorageMap),
-    data: block.getData().toObject()
-  };
-};
-
-var insertRawBlock = function insertRawBlock(block, entityMap, rawBlocks, blockCacheRef) {
-  if (block instanceof ContentBlock) {
-    rawBlocks.push(createRawBlock(block, entityMap));
-    return;
-  }
-
-  !(block instanceof ContentBlockNode) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'block is not a BlockNode') : invariant(false) : void 0;
-
-  var parentKey = block.getParentKey();
-  var rawBlock = blockCacheRef[block.getKey()] = _extends({}, createRawBlock(block, entityMap), {
-    children: []
-  });
-
-  if (parentKey) {
-    blockCacheRef[parentKey].children.push(rawBlock);
-    return;
-  }
-
-  rawBlocks.push(rawBlock);
-};
-
-var encodeRawBlocks = function encodeRawBlocks(contentState, rawState) {
-  var entityMap = rawState.entityMap;
-
-
+function convertFromDraftStateToRaw(contentState) {
+  var entityStorageKey = 0;
+  var entityStorageMap = {};
   var rawBlocks = [];
 
-  var blockCacheRef = {};
-  var entityCacheRef = {};
-  var entityStorageKey = 0;
-
-  contentState.getBlockMap().forEach(function (block) {
+  contentState.getBlockMap().forEach(function (block, blockKey) {
     block.findEntityRanges(function (character) {
       return character.getEntity() !== null;
     }, function (start) {
-      var entityKey = block.getEntityAt(start);
       // Stringify to maintain order of otherwise numeric keys.
-      var stringifiedEntityKey = DraftStringKey.stringify(entityKey);
-      // This makes this function resilient to two entities
-      // erroneously having the same key
-      if (entityCacheRef[stringifiedEntityKey]) {
-        return;
+      var stringifiedEntityKey = DraftStringKey.stringify(block.getEntityAt(start));
+      if (!entityStorageMap.hasOwnProperty(stringifiedEntityKey)) {
+        entityStorageMap[stringifiedEntityKey] = '' + entityStorageKey++;
       }
-      entityCacheRef[stringifiedEntityKey] = entityKey;
-      // we need the `any` casting here since this is a temporary state
-      // where we will later on flip the entity map and populate it with
-      // real entity, at this stage we just need to map back the entity
-      // key used by the BlockNode
-      entityMap[stringifiedEntityKey] = '' + entityStorageKey;
-      entityStorageKey++;
     });
 
-    insertRawBlock(block, entityMap, rawBlocks, blockCacheRef);
+    rawBlocks.push({
+      key: blockKey,
+      text: block.getText(),
+      type: block.getType(),
+      depth: block.getDepth(),
+      inlineStyleRanges: encodeInlineStyleRanges(block),
+      entityRanges: encodeEntityRanges(block, entityStorageMap),
+      data: block.getData().toObject()
+    });
   });
 
-  return {
-    blocks: rawBlocks,
-    entityMap: entityMap
-  };
-};
-
-// Flip storage map so that our storage keys map to global
-// DraftEntity keys.
-var encodeRawEntityMap = function encodeRawEntityMap(contentState, rawState) {
-  var blocks = rawState.blocks,
-      entityMap = rawState.entityMap;
-
-
-  var rawEntityMap = {};
-
-  Object.keys(entityMap).forEach(function (key, index) {
+  // Flip storage map so that our storage keys map to global
+  // DraftEntity keys.
+  var entityKeys = Object.keys(entityStorageMap);
+  var flippedStorageMap = {};
+  entityKeys.forEach(function (key, jj) {
     var entity = contentState.getEntity(DraftStringKey.unstringify(key));
-    rawEntityMap[index] = {
+    flippedStorageMap[jj] = {
       type: entity.getType(),
       mutability: entity.getMutability(),
       data: entity.getData()
@@ -42118,31 +40892,15 @@ var encodeRawEntityMap = function encodeRawEntityMap(contentState, rawState) {
   });
 
   return {
-    blocks: blocks,
-    entityMap: rawEntityMap
+    entityMap: flippedStorageMap,
+    blocks: rawBlocks
   };
-};
-
-var convertFromDraftStateToRaw = function convertFromDraftStateToRaw(contentState) {
-  var rawDraftContentState = {
-    entityMap: {},
-    blocks: []
-  };
-
-  // add blocks
-  rawDraftContentState = encodeRawBlocks(contentState, rawDraftContentState);
-
-  // add entities
-  rawDraftContentState = encodeRawEntityMap(contentState, rawDraftContentState);
-
-  return rawDraftContentState;
-};
+}
 
 module.exports = convertFromDraftStateToRaw;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 170 */
+/* 166 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42155,14 +40913,14 @@ module.exports = convertFromDraftStateToRaw;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule encodeEntityRanges
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var DraftStringKey = __webpack_require__(74);
-var UnicodeUtils = __webpack_require__(16);
+var DraftStringKey = __webpack_require__(71);
+var UnicodeUtils = __webpack_require__(14);
 
 var strlen = UnicodeUtils.strlen;
 
@@ -42190,7 +40948,7 @@ function encodeEntityRanges(block, storageMap) {
 module.exports = encodeEntityRanges;
 
 /***/ }),
-/* 171 */
+/* 167 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42203,15 +40961,14 @@ module.exports = encodeEntityRanges;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule encodeInlineStyleRanges
- * @format
  * 
  */
 
 
 
-var UnicodeUtils = __webpack_require__(16);
+var UnicodeUtils = __webpack_require__(14);
 
-var findRangesImmutable = __webpack_require__(20);
+var findRangesImmutable = __webpack_require__(23);
 
 var areEqual = function areEqual(a, b) {
   return a === b;
@@ -42265,11 +41022,11 @@ function encodeInlineStyleRanges(block) {
 module.exports = encodeInlineStyleRanges;
 
 /***/ }),
-/* 172 */
+/* 168 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/* WEBPACK VAR INJECTION */(function(process) {/**
+/**
  * Copyright (c) 2013-present, Facebook, Inc.
  * All rights reserved.
  *
@@ -42278,379 +41035,84 @@ module.exports = encodeInlineStyleRanges;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule convertFromRawToDraftState
- * @format
  * 
  */
 
 
 
-var _assign = __webpack_require__(4);
+var _assign = __webpack_require__(5);
 
 var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
-var ContentBlock = __webpack_require__(15);
-var ContentBlockNode = __webpack_require__(7);
-var ContentState = __webpack_require__(33);
-var DraftEntity = __webpack_require__(28);
-var DraftFeatureFlags = __webpack_require__(14);
-var DraftTreeAdapter = __webpack_require__(173);
-var Immutable = __webpack_require__(2);
-var SelectionState = __webpack_require__(17);
+var ContentBlock = __webpack_require__(13);
+var ContentState = __webpack_require__(31);
+var DraftEntity = __webpack_require__(25);
+var Immutable = __webpack_require__(3);
 
-var createCharacterList = __webpack_require__(174);
-var decodeEntityRanges = __webpack_require__(175);
-var decodeInlineStyleRanges = __webpack_require__(176);
-var generateRandomKey = __webpack_require__(12);
-var invariant = __webpack_require__(1);
+var createCharacterList = __webpack_require__(169);
+var decodeEntityRanges = __webpack_require__(170);
+var decodeInlineStyleRanges = __webpack_require__(171);
+var generateRandomKey = __webpack_require__(10);
 
-var experimentalTreeDataSupport = DraftFeatureFlags.draft_tree_data_support;
-
-var List = Immutable.List,
-    Map = Immutable.Map,
-    OrderedMap = Immutable.OrderedMap;
+var Map = Immutable.Map;
 
 
-var decodeBlockNodeConfig = function decodeBlockNodeConfig(block, entityMap) {
-  var key = block.key,
-      type = block.type,
-      data = block.data,
-      text = block.text,
-      depth = block.depth;
+function convertFromRawToDraftState(rawState) {
+  var blocks = rawState.blocks,
+      entityMap = rawState.entityMap;
 
 
-  var blockNodeConfig = {
-    text: text,
-    depth: depth || 0,
-    type: type || 'unstyled',
-    key: key || generateRandomKey(),
-    data: Map(data),
-    characterList: decodeCharacterList(block, entityMap)
-  };
-
-  return blockNodeConfig;
-};
-
-var decodeCharacterList = function decodeCharacterList(block, entityMap) {
-  var text = block.text,
-      rawEntityRanges = block.entityRanges,
-      rawInlineStyleRanges = block.inlineStyleRanges;
-
-
-  var entityRanges = rawEntityRanges || [];
-  var inlineStyleRanges = rawInlineStyleRanges || [];
-
-  // Translate entity range keys to the DraftEntity map.
-  return createCharacterList(decodeInlineStyleRanges(text, inlineStyleRanges), decodeEntityRanges(text, entityRanges.filter(function (range) {
-    return entityMap.hasOwnProperty(range.key);
-  }).map(function (range) {
-    return _extends({}, range, { key: entityMap[range.key] });
-  })));
-};
-
-var addKeyIfMissing = function addKeyIfMissing(block) {
-  return _extends({}, block, {
-    key: block.key || generateRandomKey()
-  });
-};
-
-/**
- * Node stack is responsible to ensure we traverse the tree only once
- * in depth order, while also providing parent refs to inner nodes to
- * construct their links.
- */
-var updateNodeStack = function updateNodeStack(stack, nodes, parentRef) {
-  var nodesWithParentRef = nodes.map(function (block) {
-    return _extends({}, block, {
-      parentRef: parentRef
-    });
-  });
-
-  // since we pop nodes from the stack we need to insert them in reverse
-  return stack.concat(nodesWithParentRef.reverse());
-};
-
-/**
- * This will build a tree draft content state by creating the node
- * reference links into a single tree walk. Each node has a link
- * reference to "parent", "children", "nextSibling" and "prevSibling"
- * blockMap will be created using depth ordering.
- */
-var decodeContentBlockNodes = function decodeContentBlockNodes(blocks, entityMap) {
-  return blocks
-  // ensure children have valid keys to enable sibling links
-  .map(addKeyIfMissing).reduce(function (blockMap, block, index) {
-    !Array.isArray(block.children) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'invalid RawDraftContentBlock can not be converted to ContentBlockNode') : invariant(false) : void 0;
-
-    // ensure children have valid keys to enable sibling links
-    var children = block.children.map(addKeyIfMissing);
-
-    // root level nodes
-    var contentBlockNode = new ContentBlockNode(_extends({}, decodeBlockNodeConfig(block, entityMap), {
-      prevSibling: index === 0 ? null : blocks[index - 1].key,
-      nextSibling: index === blocks.length - 1 ? null : blocks[index + 1].key,
-      children: List(children.map(function (child) {
-        return child.key;
-      }))
-    }));
-
-    // push root node to blockMap
-    blockMap = blockMap.set(contentBlockNode.getKey(), contentBlockNode);
-
-    // this stack is used to ensure we visit all nodes respecting depth ordering
-    var stack = updateNodeStack([], children, contentBlockNode);
-
-    // start computing children nodes
-    while (stack.length > 0) {
-      // we pop from the stack and start processing this node
-      var node = stack.pop();
-
-      // parentRef already points to a converted ContentBlockNode
-      var parentRef = node.parentRef;
-      var siblings = parentRef.getChildKeys();
-      var _index = siblings.indexOf(node.key);
-      var isValidBlock = Array.isArray(node.children);
-
-      if (!isValidBlock) {
-        !isValidBlock ? process.env.NODE_ENV !== 'production' ? invariant(false, 'invalid RawDraftContentBlock can not be converted to ContentBlockNode') : invariant(false) : void 0;
-        break;
-      }
-
-      // ensure children have valid keys to enable sibling links
-      var _children = node.children.map(addKeyIfMissing);
-
-      var _contentBlockNode = new ContentBlockNode(_extends({}, decodeBlockNodeConfig(node, entityMap), {
-        parent: parentRef.getKey(),
-        children: List(_children.map(function (child) {
-          return child.key;
-        })),
-        prevSibling: _index === 0 ? null : siblings.get(_index - 1),
-        nextSibling: _index === siblings.size - 1 ? null : siblings.get(_index + 1)
-      }));
-
-      // push node to blockMap
-      blockMap = blockMap.set(_contentBlockNode.getKey(), _contentBlockNode);
-
-      // this stack is used to ensure we visit all nodes respecting depth ordering
-      stack = updateNodeStack(stack, _children, _contentBlockNode);
-    }
-
-    return blockMap;
-  }, OrderedMap());
-};
-
-var decodeContentBlocks = function decodeContentBlocks(blocks, entityMap) {
-  return OrderedMap(blocks.map(function (block) {
-    var contentBlock = new ContentBlock(decodeBlockNodeConfig(block, entityMap));
-    return [contentBlock.getKey(), contentBlock];
-  }));
-};
-
-var decodeRawBlocks = function decodeRawBlocks(rawState, entityMap) {
-  var isTreeRawBlock = Array.isArray(rawState.blocks[0].children);
-  var rawBlocks = experimentalTreeDataSupport && !isTreeRawBlock ? DraftTreeAdapter.fromRawStateToRawTreeState(rawState).blocks : rawState.blocks;
-
-  if (!experimentalTreeDataSupport) {
-    return decodeContentBlocks(isTreeRawBlock ? DraftTreeAdapter.fromRawTreeStateToRawState(rawState).blocks : rawBlocks, entityMap);
-  }
-
-  return decodeContentBlockNodes(rawBlocks, entityMap);
-};
-
-var decodeRawEntityMap = function decodeRawEntityMap(rawState) {
-  var rawEntityMap = rawState.entityMap;
-
-  var entityMap = {};
+  var fromStorageToLocal = {};
 
   // TODO: Update this once we completely remove DraftEntity
-  Object.keys(rawEntityMap).forEach(function (rawEntityKey) {
-    var _rawEntityMap$rawEnti = rawEntityMap[rawEntityKey],
-        type = _rawEntityMap$rawEnti.type,
-        mutability = _rawEntityMap$rawEnti.mutability,
-        data = _rawEntityMap$rawEnti.data;
+  Object.keys(entityMap).forEach(function (storageKey) {
+    var encodedEntity = entityMap[storageKey];
+    var type = encodedEntity.type,
+        mutability = encodedEntity.mutability,
+        data = encodedEntity.data;
 
-    // get the key reference to created entity
-
-    entityMap[rawEntityKey] = DraftEntity.__create(type, mutability, data || {});
+    var newKey = DraftEntity.__create(type, mutability, data || {});
+    fromStorageToLocal[storageKey] = newKey;
   });
 
-  return entityMap;
-};
+  var contentBlocks = blocks.map(function (block) {
+    var key = block.key,
+        type = block.type,
+        text = block.text,
+        depth = block.depth,
+        inlineStyleRanges = block.inlineStyleRanges,
+        entityRanges = block.entityRanges,
+        data = block.data;
 
-var convertFromRawToDraftState = function convertFromRawToDraftState(rawState) {
-  !Array.isArray(rawState.blocks) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'invalid RawDraftContentState') : invariant(false) : void 0;
+    key = key || generateRandomKey();
+    type = type || 'unstyled';
+    depth = depth || 0;
+    inlineStyleRanges = inlineStyleRanges || [];
+    entityRanges = entityRanges || [];
+    data = Map(data);
 
-  // decode entities
-  var entityMap = decodeRawEntityMap(rawState);
+    var inlineStyles = decodeInlineStyleRanges(text, inlineStyleRanges);
 
-  // decode blockMap
-  var blockMap = decodeRawBlocks(rawState, entityMap);
+    // Translate entity range keys to the DraftEntity map.
+    var filteredEntityRanges = entityRanges.filter(function (range) {
+      return fromStorageToLocal.hasOwnProperty(range.key);
+    }).map(function (range) {
+      return _extends({}, range, { key: fromStorageToLocal[range.key] });
+    });
 
-  // create initial selection
-  var selectionState = blockMap.isEmpty() ? new SelectionState() : SelectionState.createEmpty(blockMap.first().getKey());
+    var entities = decodeEntityRanges(text, filteredEntityRanges);
+    var characterList = createCharacterList(inlineStyles, entities);
 
-  return new ContentState({
-    blockMap: blockMap,
-    entityMap: entityMap,
-    selectionBefore: selectionState,
-    selectionAfter: selectionState
+    return new ContentBlock({ key: key, type: type, text: text, depth: depth, characterList: characterList, data: data });
   });
-};
+
+  return ContentState.createFromBlockArray(contentBlocks);
+}
 
 module.exports = convertFromRawToDraftState;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
 
 /***/ }),
-/* 173 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-/* WEBPACK VAR INJECTION */(function(process) {
-
-var _assign = __webpack_require__(4);
-
-var _extends = _assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-/**
- * Copyright (c) 2013-present, Facebook, Inc.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
- *
- * @providesModule DraftTreeAdapter
- * @format
- * 
- *
- * This is unstable and not part of the public API and should not be used by
- * production systems. This file may be update/removed without notice.
- */
-
-var invariant = __webpack_require__(1);
-
-var traverseInDepthOrder = function traverseInDepthOrder(blocks, fn) {
-  var stack = [].concat(blocks).reverse();
-  while (stack.length) {
-    var _block = stack.pop();
-
-    fn(_block);
-
-    var children = _block.children;
-
-    !Array.isArray(children) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Invalid tree raw block') : invariant(false) : void 0;
-
-    stack = stack.concat([].concat(children.reverse()));
-  }
-};
-
-var isListBlock = function isListBlock(block) {
-  if (!(block && block.type)) {
-    return false;
-  }
-  var type = block.type;
-
-  return type === 'unordered-list-item' || type === 'ordered-list-item';
-};
-
-var addDepthToChildren = function addDepthToChildren(block) {
-  if (Array.isArray(block.children)) {
-    block.children = block.children.map(function (child) {
-      return child.type === block.type ? _extends({}, child, { depth: (block.depth || 0) + 1 }) : child;
-    });
-  }
-};
-
-/**
- * This adapter is intended to be be used as an adapter to draft tree data
- *
- * draft state <=====> draft tree state
- */
-var DraftTreeAdapter = {
-  /**
-   * Converts from a tree raw state back to  draft raw state
-   */
-  fromRawTreeStateToRawState: function fromRawTreeStateToRawState(draftTreeState) {
-    var blocks = draftTreeState.blocks;
-
-    var transformedBlocks = [];
-
-    !Array.isArray(blocks) ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Invalid raw state') : invariant(false) : void 0;
-
-    if (!Array.isArray(blocks) || !blocks.length) {
-      return draftTreeState;
-    }
-
-    traverseInDepthOrder(blocks, function (block) {
-      var newBlock = _extends({}, block);
-
-      if (isListBlock(block)) {
-        newBlock.depth = newBlock.depth || 0;
-        addDepthToChildren(block);
-      }
-
-      delete newBlock.children;
-
-      transformedBlocks.push(newBlock);
-    });
-
-    draftTreeState.blocks = transformedBlocks;
-
-    return _extends({}, draftTreeState, {
-      blocks: transformedBlocks
-    });
-  },
-
-
-  /**
-   * Converts from draft raw state to tree draft state
-   */
-  fromRawStateToRawTreeState: function fromRawStateToRawTreeState(draftState) {
-    var lastListDepthCacheRef = {};
-    var transformedBlocks = [];
-
-    draftState.blocks.forEach(function (block) {
-      var isList = isListBlock(block);
-      var depth = block.depth || 0;
-      var treeBlock = _extends({}, block, {
-        children: []
-      });
-
-      if (!isList) {
-        // reset the cache path
-        lastListDepthCacheRef = {};
-        transformedBlocks.push(treeBlock);
-        return;
-      }
-
-      // update our depth cache reference path
-      lastListDepthCacheRef[depth] = treeBlock;
-
-      // if we are greater than zero we must have seen a parent already
-      if (depth > 0) {
-        var parent = lastListDepthCacheRef[depth - 1];
-
-        !parent ? process.env.NODE_ENV !== 'production' ? invariant(false, 'Invalid depth for RawDraftContentBlock') : invariant(false) : void 0;
-
-        // push nested list blocks
-        parent.children.push(treeBlock);
-        return;
-      }
-
-      // push root list blocks
-      transformedBlocks.push(treeBlock);
-    });
-
-    return _extends({}, draftState, {
-      blocks: transformedBlocks
-    });
-  }
-};
-
-module.exports = DraftTreeAdapter;
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(0)))
-
-/***/ }),
-/* 174 */
+/* 169 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42663,14 +41125,14 @@ module.exports = DraftTreeAdapter;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule createCharacterList
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var CharacterMetadata = __webpack_require__(6);
-var Immutable = __webpack_require__(2);
+var CharacterMetadata = __webpack_require__(9);
+var Immutable = __webpack_require__(3);
 
 var List = Immutable.List;
 
@@ -42686,7 +41148,7 @@ function createCharacterList(inlineStyles, entities) {
 module.exports = createCharacterList;
 
 /***/ }),
-/* 175 */
+/* 170 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42699,13 +41161,13 @@ module.exports = createCharacterList;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule decodeEntityRanges
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var UnicodeUtils = __webpack_require__(16);
+var UnicodeUtils = __webpack_require__(14);
 
 var substr = UnicodeUtils.substr;
 
@@ -42732,7 +41194,7 @@ function decodeEntityRanges(text, ranges) {
 module.exports = decodeEntityRanges;
 
 /***/ }),
-/* 176 */
+/* 171 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42745,16 +41207,16 @@ module.exports = decodeEntityRanges;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule decodeInlineStyleRanges
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var _require = __webpack_require__(2),
+var _require = __webpack_require__(3),
     OrderedSet = _require.OrderedSet;
 
-var UnicodeUtils = __webpack_require__(16);
+var UnicodeUtils = __webpack_require__(14);
 
 var substr = UnicodeUtils.substr;
 
@@ -42782,7 +41244,7 @@ function decodeInlineStyleRanges(text, ranges) {
 module.exports = decodeInlineStyleRanges;
 
 /***/ }),
-/* 177 */
+/* 172 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42795,13 +41257,13 @@ module.exports = decodeInlineStyleRanges;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getVisibleSelectionRect
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var getRangeBoundingClientRect = __webpack_require__(178);
+var getRangeBoundingClientRect = __webpack_require__(173);
 
 /**
  * Return the bounding ClientRect for the visible DOM selection, if any.
@@ -42835,7 +41297,7 @@ function getVisibleSelectionRect(global) {
 module.exports = getVisibleSelectionRect;
 
 /***/ }),
-/* 178 */
+/* 173 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -42848,13 +41310,13 @@ module.exports = getVisibleSelectionRect;
  * of patent rights can be found in the PATENTS file in the same directory.
  *
  * @providesModule getRangeBoundingClientRect
- * @format
+ * @typechecks
  * 
  */
 
 
 
-var getRangeClientRects = __webpack_require__(66);
+var getRangeClientRects = __webpack_require__(63);
 
 /**
  * Like range.getBoundingClientRect() but normalizes for browser bugs.

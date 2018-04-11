@@ -23,13 +23,19 @@ render() {
     this.props.note &&
     this.props.note.mutationName === "TwoColumnEditor"
   ) {
-    const { onChange, isLoadingContent, ...props } = this.props;
+    const Editor = api().Editor;
+    const {
+      onChange,
+      isLoadingContent,
+      ourEditorState,
+      ...props
+    } = this.props;
     return (
       <div className="two-column-editor">
         <div className="editor left-editor">
           <Editor
             className="Editor1"
-            editorState={this.props.ourEditorState.left}
+            ourEditorState={this.props.ourEditorState.left}
             onChange={this.onChangeLeft}
             placeholder={"Change me!"}
             isLoadingContent={isLoadingContent}
@@ -40,7 +46,7 @@ render() {
         <div className="editor right-editor">
           <Editor
             className="Editor2"
-            editorState={this.props.ourEditorState.right}
+            ourEditorState={this.props.ourEditorState.right}
             onChange={this.onChangeRight}
             placeholder={"Write Something!"}
             {...props}
@@ -60,6 +66,9 @@ and all still have the opportunity to render a note if it is indeed their type.
 If the note is our mutation type, we return two editors. The `Editor` object should be taken
 from the `api` variable. This ensures we are using the real `BaseEditor`, so we will get all
 of its functionality and the functionality of any mutation that mutates `BaseEditor`.
+
+We use `api().Editor` to ensure we are using `BaseEditor` in our mutation. This will allow
+Editor mutations to be layered into our mutation.
 
 Looking at the left editor specifically:
 ```

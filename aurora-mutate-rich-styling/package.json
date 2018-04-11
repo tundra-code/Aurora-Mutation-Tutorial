@@ -1,6 +1,6 @@
 {
   "name": "aurora-mutate-rich-styling",
-  "version": "1.4.13",
+  "version": "1.4.16",
   "description": "Adds rich sytling (bold, italics, underline) to any editor",
   "main": "build/index.js",
   "scripts": {
@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "babel-preset-stage-2": "^6.24.1",
-    "draft-js": "^0.10.5",
+    "draft-js": "0.10.4",
     "react": "^16.2.0",
     "react-dom": "^16.2.0",
     "styled-components": "^2.4.0"

@@ -48,13 +48,18 @@ function twoColumnContentView(ContentView, api) {
         this.props.note.mutationName === "TwoColumnEditor"
       ) {
         const Editor = api().Editor;
-        const { onChange, isLoadingContent, ...props } = this.props;
+        const {
+          onChange,
+          isLoadingContent,
+          ourEditorState,
+          ...props
+        } = this.props;
         return (
           <div className="two-column-editor">
             <div className="editor left-editor">
               <Editor
                 className="Editor1"
-                editorState={this.props.ourEditorState.left}
+                ourEditorState={this.props.ourEditorState.left}
                 onChange={this.onChangeLeft}
                 placeholder={"Change me!"}
                 isLoadingContent={isLoadingContent}
@@ -65,7 +70,7 @@ function twoColumnContentView(ContentView, api) {
             <div className="editor right-editor">
               <Editor
                 className="Editor2"
-                editorState={this.props.ourEditorState.right}
+                ourEditorState={this.props.ourEditorState.right}
                 onChange={this.onChangeRight}
                 placeholder={"Write Something!"}
                 {...props}

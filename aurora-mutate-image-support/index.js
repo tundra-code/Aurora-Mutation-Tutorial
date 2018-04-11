@@ -17,6 +17,9 @@ function Images(Editor) {
     handleKeyCommand(command, editorState) {
       if (command === "insert-image") {
         const selectionState = editorState.getSelection();
+        if (!selectionState.getHasFocus()) {
+          return;
+        }
         const anchorKey = selectionState.getAnchorKey();
         const currentContent = editorState.getCurrentContent();
         const currentContentBlock = currentContent.getBlockForKey(anchorKey);
@@ -46,16 +49,16 @@ function Images(Editor) {
     }
 
     render() {
-      let plugins = [];
+      let plugs = [];
       if (this.props.plugins) {
-        plugins = this.props.plugins;
+        plugs = this.props.plugins;
       }
-      plugins.push(imagePlugin);
+      plugs.push(imagePlugin);
 
-      const { handleKeyCommand, keyBindingFn, ...props } = this.props;
+      const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
       return (
         <Editor
-          plugins={plugins}
+          plugins={plugs}
           handleKeyCommand={this.handleKeyCommand}
           keyBindingFn={this.keyBinding}
           {...props}

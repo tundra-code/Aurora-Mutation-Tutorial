@@ -22,16 +22,16 @@ The `render()` function returns the original `Editor` but with additional functi
 for handling key commands and key bindings. We also add the image plugin to the editor.
 ```
 render() {
-  let plugins = [];
+  let plugs = [];
   if (this.props.plugins) {
-    plugins = this.props.plugins;
+    plugs = this.props.plugins;
   }
-  plugins.push(imagePlugin);
+  plugs.push(imagePlugin);
 
-  const { handleKeyCommand, keyBindingFn, ...props } = this.props;
+  const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
   return (
     <Editor
-      plugins={plugins}
+      plugins={plugs}
       handleKeyCommand={this.handleKeyCommand}
       keyBindingFn={this.keyBinding}
       {...props}
