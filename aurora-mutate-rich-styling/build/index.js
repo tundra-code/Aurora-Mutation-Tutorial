@@ -12854,7 +12854,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 // add inline toolbar for styling
 var inlineToolbarPlugin = (0, _draftJsInlineToolbarPlugin2.default)({
-  structure: [_draftJsButtons.BoldButton, _draftJsButtons.ItalicButton, _draftJsButtons.UnderlineButton, _draftJsButtons.CodeButton, _draftJsButtons.UnorderedListButton, _draftJsButtons.OrderedListButton, _draftJsButtons.BlockquoteButton, _draftJsButtons.CodeBlockButton]
+  structure: [_draftJsButtons.BoldButton, _draftJsButtons.ItalicButton, _draftJsButtons.UnderlineButton, _draftJsButtons.CodeButton, _draftJsButtons.UnorderedListButton, _draftJsButtons.OrderedListButton, _draftJsButtons.BlockquoteButton]
 });
 var InlineToolbar = inlineToolbarPlugin.InlineToolbar;
 

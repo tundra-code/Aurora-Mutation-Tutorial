@@ -10,8 +10,7 @@ import {
   CodeButton,
   UnorderedListButton,
   OrderedListButton,
-  BlockquoteButton,
-  CodeBlockButton
+  BlockquoteButton
 } from "draft-js-buttons";
 import "./style.css";
 
@@ -24,8 +23,7 @@ const inlineToolbarPlugin = createInlineToolbarPlugin({
     CodeButton,
     UnorderedListButton,
     OrderedListButton,
-    BlockquoteButton,
-    CodeBlockButton
+    BlockquoteButton
   ]
 });
 const { InlineToolbar } = inlineToolbarPlugin;
