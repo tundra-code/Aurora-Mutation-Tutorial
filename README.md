@@ -216,3 +216,23 @@ npm publish                 //builds publishes your updated package
 
 ## Check out the Aurora Mutations Store!
 Once you publish your npm package your mutation will be available for all of the Aurora users to add to their version of the application!
+
+## Mutation Development
+Currently, we admit that there is no easy way to develop mutations. The simplest workflow is to make changes to your mutation, change the version and publish it, then reinstall the mutation in your Aurora application. However, we have found some faster ways.
+
+One problem with installing your newest version through the Aurora GUI is that it often doesn't install the latest version that you just published because of delays in npm's system. So the faster and more reliable way of updating the version of your mutation Aurora is using is:
+```
+cd ~/.aurora/<env>/mutations/  # where <env> is development or production
+vi package.json                # vi or whichever code editor you like
+# update the version of your mutation to the version you just published
+npm install                    # installs the updated mutation
+# Reload Aurora (command+R)
+```
+
+Additionally, if you just want to test something small (like add a `console.log` to see if a bit of code is even getting called), you can directly edit the mutation source code.
+```
+vi ~/.aurora/<env>/mutations/node_modules/<my_mutation>/build/index.js
+# Search for the section of code you want to change, make the change
+# Reload Aurora
+```
+Changing this source file can be difficult because it is compiled code. Additionally, these changes do not persist so this is purely for testing little things out. If you want to make any permanent change to your mutation, you have to make the changes in your npm package and then publish.
