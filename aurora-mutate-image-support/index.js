@@ -1,10 +1,28 @@
 import createImagePlugin from "draft-js-image-plugin";
 import React from "react";
 import { getDefaultKeyBinding, KeyBindingUtil } from "draft-js";
+import "draft-js-image-plugin/lib/plugin.css";
+import { composeDecorators } from "draft-js-plugins-editor";
+import createResizeablePlugin from "draft-js-resizeable-plugin";
+import createFocusPlugin from "draft-js-focus-plugin";
+import createAlignmentPlugin from "draft-js-alignment-plugin";
+import createBlockDndPlugin from "draft-js-drag-n-drop-plugin";
+
+const focusPlugin = createFocusPlugin();
+const resizeablePlugin = createResizeablePlugin();
+const blockDndPlugin = createBlockDndPlugin();
+const alignmentPlugin = createAlignmentPlugin();
+const { AlignmentTool } = alignmentPlugin;
+
+const decorator = composeDecorators(
+  resizeablePlugin.decorator,
+  alignmentPlugin.decorator,
+  focusPlugin.decorator,
+  blockDndPlugin.decorator
+);
+const imagePlugin = createImagePlugin({ decorator });
 
 const { hasCommandModifier } = KeyBindingUtil;
-
-const imagePlugin = createImagePlugin();
 
 function Images(Editor) {
   return class extends React.Component {
@@ -54,15 +72,21 @@ function Images(Editor) {
         plugs = this.props.plugins;
       }
       plugs.push(imagePlugin);
+      plugs.push(focusPlugin);
+      plugs.push(resizeablePlugin);
+      plugs.push(blockDndPlugin);
+      plugs.push(alignmentPlugin);
 
       const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
       return (
-        <Editor
-          plugins={plugs}
-          handleKeyCommand={this.handleKeyCommand}
-          keyBindingFn={this.keyBinding}
-          {...props}
-        />
+        <div>
+          <Editor
+            plugins={plugs}
+            handleKeyCommand={this.handleKeyCommand}
+            keyBindingFn={this.keyBinding}
+            {...props}
+          />
+        </div>
       );
     }
   };

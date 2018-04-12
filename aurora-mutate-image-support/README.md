@@ -19,7 +19,8 @@ function Images(Editor) {
 The `Editor` parameter is the `BaseEditor` we are mutating. We will use it in this new component.
 
 The `render()` function returns the original `Editor` but with additional functionality
-for handling key commands and key bindings. We also add the image plugin to the editor.
+for handling key commands and key bindings. We also add all of the plugins needed
+for image support and resizing images to the editor.
 ```
 render() {
   let plugs = [];
@@ -27,6 +28,10 @@ render() {
     plugs = this.props.plugins;
   }
   plugs.push(imagePlugin);
+  plugs.push(focusPlugin);
+  plugs.push(resizeablePlugin);
+  plugs.push(blockDndPlugin);
+  plugs.push(alignmentPlugin);
 
   const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
   return (
@@ -41,11 +46,12 @@ render() {
 ```
 Note the line:
 ```
-const { handleKeyCommand, keyBindingFn, ...props } = this.props;
+const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
 ```
-This extracts the `handleKeyCommand` and `keyBindingFn` prop from all props.
+This extracts the `handleKeyCommand`, `keyBindingFn`, and `plugins` prop from all props.
 We do this because we do not want the original `handleKeyCommand` an `keyBindingFn` functions to be called.
-We are writing our own versions of these functions.
+We are writing our own versions of these functions. Furthermore, we are modifying
+`plugins` and adding some to it.
 
 Next, let's look at our custom key binding:
 ```
@@ -89,6 +95,10 @@ handleKeyCommand(command, editorState) {
 If the command is `insert-image`, we extract the selected text (complicated, I know) and inserts an image
 using the draftjs image plugin. It then calls `this.props.onChange` to pass in the new state.
 Otherwise, we let `this.props.handleKeyCommand` handle it, if it exists.
+
+There's also a bunch of code at the top of the file creating the various plugins and such.
+That's just as described by the `draft-js` web tutorials. I just copied the code over; it's
+not mutation specific.
 
 ### Toolbar
 We want the functionality of `command+k` to be in the Aurora toolbar, so we register it:
