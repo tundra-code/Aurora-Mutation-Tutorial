@@ -236,3 +236,11 @@ vi ~/.aurora/<env>/mutations/node_modules/<my_mutation>/build/index.js
 # Reload Aurora
 ```
 Changing this source file can be difficult because it is compiled code. Additionally, these changes do not persist so this is purely for testing little things out. If you want to make any permanent change to your mutation, you have to make the changes in your npm package and then publish.
+
+## Unpublishing your mutation from the mutation store
+If you would like to remove your mutation from the mutation store, we allow a way to do that.
+Simply add the keyword `unpublish` to your `package.json` and publish the update version:
+```
+keywords: ["unpublish"]
+```
+This is nice if you started work on a mutation but never finished it. There is no way to remove your `npm` package from the npm repo, but at least this will prevent your mutation from appearing in our Mutation Store.
