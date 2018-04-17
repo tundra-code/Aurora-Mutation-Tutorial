@@ -111,7 +111,7 @@ https://reactjs.org/docs/higher-order-components.html
 ## Webpack
 Webpack is a bundler, and we’re going to use it to bundle your mutation once you have written it. You can install Webpack by entering this onto your command line
 
-`npm install webpack -g`
+`npm install webpack@3.6.0 -g`
 
 Next you’ll have to create a `webpack.config.js` file. This file will tell webpack what it should do. Here is an example of what it should look like.
 ```
