@@ -109,6 +109,8 @@ For more information about the React technique used to write mutations check thi
 
 https://reactjs.org/docs/higher-order-components.html
 
+It is also very important to give your classes unique names, for example instead of naming your class `editor`, add your mutation as a suffix like `editorNameOfMutation`
+
 ### Example Mutations
 - [aurora-mutate-rich-styling](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-rich-styling): simple mutation that adds rich styling (bold, italics, underline) to the editor.
 - [aurora-mutate-image-support](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-image-support): relatively simple mutation that gives user ability to insert image via URL.
