@@ -23,22 +23,30 @@ render() {
     this.props.note &&
     this.props.note.mutationName === "TwoColumnEditor"
   ) {
-    const { onChange, ...props } = this.props;
+    const Editor = api().Editor;
+    const {
+      onChange,
+      isLoadingContent,
+      ourEditorState,
+      ...props
+    } = this.props;
     return (
       <div className="two-column-editor">
         <div className="editor left-editor">
           <Editor
             className="Editor1"
-            editorState={this.props.ourEditorState.left}
+            ourEditorState={this.props.ourEditorState.left}
             onChange={this.onChangeLeft}
             placeholder={"Change me!"}
+            isLoadingContent={isLoadingContent}
+            finishedLoadingContent={this.finishedLoadingContent}
             {...props}
           />
         </div>
         <div className="editor right-editor">
           <Editor
             className="Editor2"
-            editorState={this.props.ourEditorState.right}
+            ourEditorState={this.props.ourEditorState.right}
             onChange={this.onChangeRight}
             placeholder={"Write Something!"}
             {...props}
@@ -59,6 +67,9 @@ If the note is our mutation type, we return two editors. The `Editor` object sho
 from the `api` variable. This ensures we are using the real `BaseEditor`, so we will get all
 of its functionality and the functionality of any mutation that mutates `BaseEditor`.
 
+We use `api().Editor` to ensure we are using `BaseEditor` in our mutation. This will allow
+Editor mutations to be layered into our mutation.
+
 Looking at the left editor specifically:
 ```
 <Editor
@@ -66,13 +77,17 @@ Looking at the left editor specifically:
   editorState={this.props.ourEditorState.left}
   onChange={this.onChangeLeft}
   placeholder={"Change me!"}
+  isLoadingContent={isLoadingContent}
+  finishedLoadingContent={this.finishedLoadingContent}
   {...props}
 />
 ```
 We pass in `...props`, which is all the props for this component minus `onChange`. We extract
-`onChange` because we are modifying that behavior in our mutation.
+`onChange` and `isLoadingContent` because we are modifying that behavior in our mutation.
+We give `isLoadingContent` and our function `this.finishedLoadingContent` to only the left editor
+so the behavior of loading content only occurs once.
 ```
-const { onChange, ...props } = this.props;
+const { onChange, isLoadingContent, ...props } = this.props;
 ```
 This Editor's `editorState` is `this.props.ourEditorState.left` because we've designed editor state
 for this mutation to be essentially a `JSON` object like such:
@@ -118,21 +133,7 @@ finishedLoadingContent = () => {
 ```
 This function just calls `note.getContent` and then deserializes it using our deserialization function.
 Then it passes the new editor state in `this.props.onContentLoaded`, and Aurora takes care of the rest.
-
-We also need to know when to call this `finishedLoadingContent` function, so we add:
-```
-componentDidUpdate(prevProps) {
-  const contentLoaded =
-    prevProps.isLoadingContent === true &&
-    this.props.isLoadingContent === false &&
-    this.props.note.mutationName === "TwoColumnEditor";
-  if (contentLoaded) {
-    this.finishedLoadingContent();
-  }
-}
-```
-Here, we just check if the previous state was loading content, we are no longer loading, and the selected
-note has a mutation name that matches our mutation name. This is the conditions for `finishedLoadingContent`.
+We pass this function as a prop to the first editor and it knows when to call this function.
 
 ## Util.js
 This file contains the serialization, deSerialize, preview, and searchable text functions. These functions are all pretty simple, but we'll look at a few for example.

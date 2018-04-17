@@ -1,10 +1,28 @@
 import createImagePlugin from "draft-js-image-plugin";
 import React from "react";
 import { getDefaultKeyBinding, KeyBindingUtil } from "draft-js";
+import "draft-js-image-plugin/lib/plugin.css";
+import { composeDecorators } from "draft-js-plugins-editor";
+import createResizeablePlugin from "draft-js-resizeable-plugin";
+import createFocusPlugin from "draft-js-focus-plugin";
+import createAlignmentPlugin from "draft-js-alignment-plugin";
+import createBlockDndPlugin from "draft-js-drag-n-drop-plugin";
+
+const focusPlugin = createFocusPlugin();
+const resizeablePlugin = createResizeablePlugin();
+const blockDndPlugin = createBlockDndPlugin();
+const alignmentPlugin = createAlignmentPlugin();
+const { AlignmentTool } = alignmentPlugin;
+
+const decorator = composeDecorators(
+  resizeablePlugin.decorator,
+  alignmentPlugin.decorator,
+  focusPlugin.decorator,
+  blockDndPlugin.decorator
+);
+const imagePlugin = createImagePlugin({ decorator });
 
 const { hasCommandModifier } = KeyBindingUtil;
-
-const imagePlugin = createImagePlugin();
 
 function Images(Editor) {
   return class extends React.Component {
@@ -14,21 +32,12 @@ function Images(Editor) {
       this.keyBinding = this.keyBinding.bind(this);
     }
 
-    componentDidUpdate(prevProps) {
-      const simulatedKeyCommand =
-        prevProps.simulatedKeyCommand === null &&
-        this.props.simulatedKeyCommand !== null;
-      if (simulatedKeyCommand) {
-        this.handleKeyCommand(
-          this.props.simulatedKeyCommand,
-          this.props.ourEditorState
-        );
-      }
-    }
-
     handleKeyCommand(command, editorState) {
       if (command === "insert-image") {
         const selectionState = editorState.getSelection();
+        if (!selectionState.getHasFocus()) {
+          return;
+        }
         const anchorKey = selectionState.getAnchorKey();
         const currentContent = editorState.getCurrentContent();
         const currentContentBlock = currentContent.getBlockForKey(anchorKey);
@@ -58,25 +67,26 @@ function Images(Editor) {
     }
 
     render() {
-      let plugins = [];
+      let plugs = [];
       if (this.props.plugins) {
-        plugins = this.props.plugins;
+        plugs = this.props.plugins;
       }
-      plugins.push(imagePlugin);
+      plugs.push(imagePlugin);
+      plugs.push(focusPlugin);
+      plugs.push(resizeablePlugin);
+      plugs.push(blockDndPlugin);
+      plugs.push(alignmentPlugin);
 
-      const {
-        handleKeyCommand,
-        keyBindingFn,
-        simulatedKeyCommand,
-        ...props
-      } = this.props;
+      const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
       return (
-        <Editor
-          plugins={plugins}
-          handleKeyCommand={this.handleKeyCommand}
-          keyBindingFn={this.keyBinding}
-          {...props}
-        />
+        <div>
+          <Editor
+            plugins={plugs}
+            handleKeyCommand={this.handleKeyCommand}
+            keyBindingFn={this.keyBinding}
+            {...props}
+          />
+        </div>
       );
     }
   };

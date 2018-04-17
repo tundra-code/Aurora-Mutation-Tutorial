@@ -18,25 +18,58 @@ function RichStyling(Editor) {
 ```
 The `Editor` parameter is the `BaseEditor` we are mutating. We will use it in this new component.
 
-The `render()` function simply returns our original editor but with an additional function.
+The `render()` function simply returns our original editor but with additionall functions.
 ```
 render() {
-  const { handleKeyCommand, ...props } = this.props;
+  // add our plugin to existing list of plugins
+  let plugs = [];
+  if (this.props.plugins) {
+    plugs = this.props.plugins;
+  }
+  plugs.push(inlineToolbarPlugin);
+
+  // extract handleKeyCommand prop because we want to replace it with our own.
+  const { handleKeyCommand, plugins, ...props } = this.props;
   return (
-    <Editor handleKeyCommand={this.handleKeyCommand} {...props}>
-      {this.props.children}
-    </Editor>
+    <div>
+      <Editor
+        handleKeyCommand={this.handleKeyCommand}
+        plugins={plugs}
+        {...props}
+      />
+      <InlineToolbar />
+    </div>
   );
 }
 ```
 We pass in an additional prop for `handleKeyCommand`, which we will write to include rich styling.
 Note the line:
 ```
-const { handleKeyCommand, ...props } = this.props;
+const { handleKeyCommand, plugins, ...props } = this.props;
 ```
-This extracts the `handleKeyCommand` prop from all props, if it exists.
+This extracts the `handleKeyCommand` and `plugins` props from all props, if they exists.
 We do this because we do not want the original `handleKeyCommand` function to be called.
-We are writing our own version of this function.
+We are writing our own version of this function. Additionally, we add to `plugins`, adding
+our own `inlineToolbarPlugin` and then passing that new plugin list to the `Editor`.
+
+`inlineToolbarPlugin` comes from a `draft-js` library. We import it and instantiate it like:
+```
+// add inline toolbar for styling
+const inlineToolbarPlugin = createInlineToolbarPlugin({
+  structure: [
+    BoldButton,
+    ItalicButton,
+    UnderlineButton,
+    CodeButton,
+    UnorderedListButton,
+    OrderedListButton,
+    BlockquoteButton,
+    CodeBlockButton
+  ]
+});
+const { InlineToolbar } = inlineToolbarPlugin;
+```
+Here, we define which buttons are in the toolbar and the order of them. When using plugin, make sure to instantiate it outside of the `render()` function so it is only instantiated once.
 
 Next, we write our `handleKeyCommand` function.
 ```

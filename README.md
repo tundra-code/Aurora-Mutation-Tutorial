@@ -7,7 +7,9 @@ This is a simple tutorial for writing a mutation for the Aurora application. The
 
 Mutations allow our users to have ultimate flexibility with their note taking styles. A mutation can change most aspects of Aurora. For instance, if you like taking notes in a cornell style format, you can write a mutation that will allow you to do that. Don't like the way the previews look? You can write a mutation to change that.
 
-Check out the [mutation writing framework](https://github.com/rainmaker022/Aurora-Mutation-Framework) for a forkable project to ease the mutation creating process.
+## Sample Mutation Project
+If you don't want to go through the details of this tutorial, you can also just fork [this project](https://github.com/rainmaker022/Aurora-Mutation-Framework) and change a few strings and get on your way.
+
 ## npm
 First you’ll need to install node if you don’t already have it. That can be done with this link: [node download](https://nodejs.org/en/download/)
 
@@ -106,6 +108,13 @@ https://reactjs.org/docs/hello-world.html
 For more information about the React technique used to write mutations check this out:
 
 https://reactjs.org/docs/higher-order-components.html
+
+### Example Mutations
+- [aurora-mutate-rich-styling](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-rich-styling): simple mutation that adds rich styling (bold, italics, underline) to the editor.
+- [aurora-mutate-image-support](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-image-support): relatively simple mutation that gives user ability to insert image via URL.
+- [aurora-mutate-two-column-editor](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-two-column-editor): pretty simple mutation that gives users two fixed columns in their notes.
+- [aurora-mutate-many-column-editor](https://github.com/kmccrohan/aurora-mutate-many-column-editor):
+a more complex mutation that allows user to add/remove columns to their notes.
 
 
 ## Webpack
@@ -207,3 +216,31 @@ npm publish                 //builds publishes your updated package
 
 ## Check out the Aurora Mutations Store!
 Once you publish your npm package your mutation will be available for all of the Aurora users to add to their version of the application!
+
+## Mutation Development
+Currently, we admit that there is no easy way to develop mutations. The simplest workflow is to make changes to your mutation, change the version and publish it, then reinstall the mutation in your Aurora application. However, we have found some faster ways.
+
+One problem with installing your newest version through the Aurora GUI is that it often doesn't install the latest version that you just published because of delays in npm's system. So the faster and more reliable way of updating the version of your mutation Aurora is using is:
+```
+cd ~/.aurora/<env>/mutations/  # where <env> is development or production
+vi package.json                # vi or whichever code editor you like
+# update the version of your mutation to the version you just published
+npm install                    # installs the updated mutation
+# Reload Aurora (command+R)
+```
+
+Additionally, if you just want to test something small (like add a `console.log` to see if a bit of code is even getting called), you can directly edit the mutation source code.
+```
+vi ~/.aurora/<env>/mutations/node_modules/<my_mutation>/build/index.js
+# Search for the section of code you want to change, make the change
+# Reload Aurora
+```
+Changing this source file can be difficult because it is compiled code. Additionally, these changes do not persist so this is purely for testing little things out. If you want to make any permanent change to your mutation, you have to make the changes in your npm package and then publish.
+
+## Unpublishing your mutation from the mutation store
+If you would like to remove your mutation from the mutation store, we allow a way to do that.
+Simply add the keyword `unpublish` to your `package.json` and publish the update version:
+```
+keywords: ["unpublish"]
+```
+This is nice if you started work on a mutation but never finished it. There is no way to remove your `npm` package from the npm repo, but at least this will prevent your mutation from appearing in our Mutation Store.

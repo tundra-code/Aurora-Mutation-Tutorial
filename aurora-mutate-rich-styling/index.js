@@ -1,6 +1,32 @@
 import React from "react";
 import styled from "styled-components";
 import { RichUtils } from "draft-js";
+import createInlineToolbarPlugin from "draft-js-inline-toolbar-plugin";
+import "draft-js-inline-toolbar-plugin/lib/plugin.css";
+import {
+  ItalicButton,
+  BoldButton,
+  UnderlineButton,
+  CodeButton,
+  UnorderedListButton,
+  OrderedListButton,
+  BlockquoteButton
+} from "draft-js-buttons";
+import "./style.css";
+
+// add inline toolbar for styling
+const inlineToolbarPlugin = createInlineToolbarPlugin({
+  structure: [
+    BoldButton,
+    ItalicButton,
+    UnderlineButton,
+    CodeButton,
+    UnorderedListButton,
+    OrderedListButton,
+    BlockquoteButton
+  ]
+});
+const { InlineToolbar } = inlineToolbarPlugin;
 
 function RichStyling(Editor) {
   return class extends React.Component {
@@ -24,28 +50,28 @@ function RichStyling(Editor) {
     }
 
     render() {
+      // add our plugin to existing list of plugins
+      let plugs = [];
+      if (this.props.plugins) {
+        plugs = this.props.plugins;
+      }
+      plugs.push(inlineToolbarPlugin);
+
       // extract handleKeyCommand prop because we want to replace it with our own.
-      const { handleKeyCommand, ...props } = this.props;
-      return <Editor handleKeyCommand={this.handleKeyCommand} {...props} />;
+      const { handleKeyCommand, plugins, ...props } = this.props;
+      return (
+        <div>
+          <Editor
+            handleKeyCommand={this.handleKeyCommand}
+            plugins={plugs}
+            {...props}
+          />
+          <InlineToolbar />
+        </div>
+      );
     }
   };
 }
-
-window.toolbar.toggleButtons.push({
-  icon: "B",
-  command: "bold",
-  hint: "bold text"
-});
-window.toolbar.toggleButtons.push({
-  icon: "I",
-  command: "italic",
-  hint: "italicize text"
-});
-window.toolbar.toggleButtons.push({
-  icon: "U",
-  command: "underline",
-  hint: "underline text"
-});
 
 module.exports.mutations = {
   BaseEditor: RichStyling

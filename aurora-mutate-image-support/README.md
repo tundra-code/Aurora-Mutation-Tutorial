@@ -19,19 +19,24 @@ function Images(Editor) {
 The `Editor` parameter is the `BaseEditor` we are mutating. We will use it in this new component.
 
 The `render()` function returns the original `Editor` but with additional functionality
-for handling key commands and key bindings. We also add the image plugin to the editor.
+for handling key commands and key bindings. We also add all of the plugins needed
+for image support and resizing images to the editor.
 ```
 render() {
-  let plugins = [];
+  let plugs = [];
   if (this.props.plugins) {
-    plugins = this.props.plugins;
+    plugs = this.props.plugins;
   }
-  plugins.push(imagePlugin);
+  plugs.push(imagePlugin);
+  plugs.push(focusPlugin);
+  plugs.push(resizeablePlugin);
+  plugs.push(blockDndPlugin);
+  plugs.push(alignmentPlugin);
 
-  const { handleKeyCommand, keyBindingFn, ...props } = this.props;
+  const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
   return (
     <Editor
-      plugins={plugins}
+      plugins={plugs}
       handleKeyCommand={this.handleKeyCommand}
       keyBindingFn={this.keyBinding}
       {...props}
@@ -41,11 +46,12 @@ render() {
 ```
 Note the line:
 ```
-const { handleKeyCommand, keyBindingFn, ...props } = this.props;
+const { handleKeyCommand, keyBindingFn, plugins, ...props } = this.props;
 ```
-This extracts the `handleKeyCommand` and `keyBindingFn` prop from all props.
+This extracts the `handleKeyCommand`, `keyBindingFn`, and `plugins` prop from all props.
 We do this because we do not want the original `handleKeyCommand` an `keyBindingFn` functions to be called.
-We are writing our own versions of these functions.
+We are writing our own versions of these functions. Furthermore, we are modifying
+`plugins` and adding some to it.
 
 Next, let's look at our custom key binding:
 ```
@@ -90,6 +96,10 @@ If the command is `insert-image`, we extract the selected text (complicated, I k
 using the draftjs image plugin. It then calls `this.props.onChange` to pass in the new state.
 Otherwise, we let `this.props.handleKeyCommand` handle it, if it exists.
 
+There's also a bunch of code at the top of the file creating the various plugins and such.
+That's just as described by the `draft-js` web tutorials. I just copied the code over; it's
+not mutation specific.
+
 ### Toolbar
 We want the functionality of `command+k` to be in the Aurora toolbar, so we register it:
 ```
@@ -101,23 +111,6 @@ window.toolbar.buttons.push({
 ```
 The `command` must match the command we use in `handleKeyCommand`.
 
-We also have to add this block of code:
-```
-componentDidUpdate(prevProps) {
-  const simulatedKeyCommand =
-    prevProps.simulatedKeyCommand === null &&
-    this.props.simulatedKeyCommand !== null;
-  if (simulatedKeyCommand) {
-    this.handleKeyCommand(
-      this.props.simulatedKeyCommand,
-      this.props.ourEditorState
-    );
-  }
-}
-```
-This code block checks to see if there is a new `simulatedKeyCommand` from the toolbar.
-If there is, we need to handle it. Anytime you modify `handleKeyCommand`, you must
-include this block of code.
 
 ### Other
 Don't forget to bind functions in the constructor:
