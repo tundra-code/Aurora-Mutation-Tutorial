@@ -113,7 +113,7 @@ https://reactjs.org/docs/higher-order-components.html
 - [aurora-mutate-rich-styling](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-rich-styling): simple mutation that adds rich styling (bold, italics, underline) to the editor.
 - [aurora-mutate-image-support](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-image-support): relatively simple mutation that gives user ability to insert image via URL.
 - [aurora-mutate-two-column-editor](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-two-column-editor): pretty simple mutation that gives users two fixed columns in their notes.
-- [aurora-mutate-many-column-editor](https://github.com/kmccrohan/aurora-mutate-many-column-editor):
+- [aurora-mutate-many-column-editor](https://github.com/tundra-code/aurora-mutate-many-column-editor):
 a more complex mutation that allows user to add/remove columns to their notes.
 
 
