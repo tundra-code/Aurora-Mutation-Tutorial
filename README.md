@@ -109,6 +109,8 @@ For more information about the React technique used to write mutations check thi
 
 https://reactjs.org/docs/higher-order-components.html
 
+It is also very important to give your classes unique names. For example instead of naming your class `editor`, add your mutation as a suffix to your class name like `editorNameOfMutation`
+
 ### Example Mutations
 - [aurora-mutate-rich-styling](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-rich-styling): simple mutation that adds rich styling (bold, italics, underline) to the editor.
 - [aurora-mutate-image-support](https://github.com/rainmaker022/Aurora-Mutation-Tutorial/tree/master/aurora-mutate-image-support): relatively simple mutation that gives user ability to insert image via URL.
@@ -120,7 +122,7 @@ a more complex mutation that allows user to add/remove columns to their notes.
 ## Webpack
 Webpack is a bundler, and we’re going to use it to bundle your mutation once you have written it. You can install Webpack by entering this onto your command line
 
-`npm install webpack -g`
+`npm install webpack@3.6.0 -g`
 
 Next you’ll have to create a `webpack.config.js` file. This file will tell webpack what it should do. Here is an example of what it should look like.
 ```
